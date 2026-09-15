@@ -7,7 +7,8 @@ import { logger, errorMessage } from "@/lib/logger";
 import { assertSafeUrl, UnsafeUrlError } from "@/lib/security/ssrf";
 import { cleanText } from "@/lib/security/sanitize";
 import { normalizeUrl } from "@/lib/seo/url";
-import { fetchSourceFeed } from "./providers";
+import { FeedRateLimitedError } from "./feed-http";
+import { fetchFeedIfChanged, fetchSourceFeed } from "./providers";
 import { classifySeoArticle, cleanSeoSummary, cleanSeoTitle, pickTopStories, SEO_TOPIC_RULES } from "./seo-topics";
 
 /**
@@ -25,16 +26,29 @@ export interface IndustryNewsResult {
   feeds: number;
   fetched: number;
   inserted: number;
+  /** Feeds that answered 304 Not Modified (nothing downloaded). */
+  unchanged: number;
+  /** Feeds skipped or paused because the publisher asked us to slow down. */
+  paused: number;
   errors: number;
 }
 
 export async function runIndustryNewsFetch(): Promise<IndustryNewsResult> {
   const feeds = await db.select().from(seoFeeds).where(eq(seoFeeds.isEnabled, true)).orderBy(asc(seoFeeds.priority), asc(seoFeeds.id));
-  const out: IndustryNewsResult = { feeds: feeds.length, fetched: 0, inserted: 0, errors: 0 };
+  const out: IndustryNewsResult = { feeds: feeds.length, fetched: 0, inserted: 0, unchanged: 0, paused: 0, errors: 0 };
   for (const feed of feeds) {
+    if (feed.nextFetchAfter && feed.nextFetchAfter.getTime() > Date.now()) {
+      out.paused++;
+      continue;
+    }
     try {
-      const items = await fetchSourceFeed(feed.url, feed.label, LOOKBACK_DAYS);
-      const rows = items.flatMap((a) => {
+      const result = await fetchFeedIfChanged(feed.url, feed.label, LOOKBACK_DAYS, { etag: feed.etag, lastModified: feed.lastModified });
+      if (result.notModified) {
+        out.unchanged++;
+        await db.update(seoFeeds).set({ lastFetchedAt: new Date(), lastStatus: "ok", lastError: null, nextFetchAfter: null, updatedAt: new Date() }).where(eq(seoFeeds.id, feed.id));
+        continue;
+      }
+      const rows = result.articles.flatMap((a) => {
         let normalized: string;
         try {
           normalized = normalizeUrl(a.url);
@@ -63,8 +77,18 @@ export async function runIndustryNewsFetch(): Promise<IndustryNewsResult> {
         const inserted = await db.insert(seoArticles).values(rows).onConflictDoNothing().returning({ id: seoArticles.id });
         out.inserted += inserted.length;
       }
-      await db.update(seoFeeds).set({ lastFetchedAt: new Date(), lastStatus: "ok", lastError: null, updatedAt: new Date() }).where(eq(seoFeeds.id, feed.id));
+      await db
+        .update(seoFeeds)
+        .set({ lastFetchedAt: new Date(), lastStatus: "ok", lastError: null, etag: result.etag, lastModified: result.lastModified, nextFetchAfter: null, updatedAt: new Date() })
+        .where(eq(seoFeeds.id, feed.id));
     } catch (err) {
+      if (err instanceof FeedRateLimitedError) {
+        out.paused++;
+        const until = new Date(Date.now() + err.retryAfterMs);
+        await db.update(seoFeeds).set({ lastFetchedAt: new Date(), lastStatus: "rate_limited", lastError: err.message, nextFetchAfter: until, updatedAt: new Date() }).where(eq(seoFeeds.id, feed.id));
+        await logger.info("seo-news", `Feed "${feed.label}" paused until ${until.toISOString()} at the publisher's request`, { url: feed.url, status: err.status });
+        continue;
+      }
       out.errors++;
       await db
         .update(seoFeeds)
@@ -73,20 +97,20 @@ export async function runIndustryNewsFetch(): Promise<IndustryNewsResult> {
       await logger.warn("seo-news", `Feed "${feed.label}" could not be read`, { url: feed.url, error: errorMessage(err) });
     }
   }
-  if (out.errors === feeds.length && feeds.length > 0) throw new Error("No SEO news feed could be read; see Admin → System for details.");
+  if (out.errors > 0 && out.errors === feeds.length - out.paused) throw new Error("No SEO news feed could be read; see Admin → System for details.");
   return out;
 }
 
 /* ───────────────────────────── Feeds (admin) ───────────────────────────── */
 
-export async function listSeoFeeds(): Promise<Array<SeoFeed & { articles: number }>> {
+export async function listSeoFeeds(): Promise<Array<SeoFeed & { articles: number; paused: boolean }>> {
   const counts = db.select({ feedId: seoArticles.feedId, n: count().as("n") }).from(seoArticles).groupBy(seoArticles.feedId).as("c");
   const rows = await db
-    .select({ feed: seoFeeds, articles: sql<number>`coalesce(${counts.n}, 0)::int` })
+    .select({ feed: seoFeeds, articles: sql<number>`coalesce(${counts.n}, 0)::int`, paused: sql<boolean>`coalesce(${seoFeeds.nextFetchAfter} > now(), false)` })
     .from(seoFeeds)
     .leftJoin(counts, eq(counts.feedId, seoFeeds.id))
     .orderBy(asc(seoFeeds.priority), asc(seoFeeds.label));
-  return rows.map((r) => ({ ...r.feed, articles: Number(r.articles) }));
+  return rows.map((r) => ({ ...r.feed, articles: Number(r.articles), paused: Boolean(r.paused) }));
 }
 
 export async function addSeoFeed(input: { label: string; url: string; official: boolean }): Promise<string | null> {

@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { logger, errorMessage } from "@/lib/logger";
 import { claimPeriod, getSettings, localParts } from "@/lib/settings";
 import { onlineRegions } from "@/lib/crawler/heartbeat";
+import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
 import { blockedBackoffHours } from "@/lib/seo/crawl-policy";
 import { createScanAndJob, logScanEvent } from "@/lib/seo/scans";
 import { enqueueJob } from "./queue";
@@ -26,7 +27,13 @@ const REGION_FALLBACK_MINUTES = 30;
  */
 export async function scheduleDueWork(now = new Date()) {
   const s = await getSettings();
-  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused };
+  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>> };
+  // Runs even while scheduling is paused: scans that are already queued can still be stranded.
+  try {
+    out.crawlerAlert = await checkCrawlerAvailability(now);
+  } catch (err) {
+    await logger.error("crawler", "Crawler availability check failed", { error: errorMessage(err) });
+  }
   if (s.schedulerPaused) return out;
 
   const dueSeo = await db.execute<{ id: number; interval_hours: number; last_scan: string | null; blocked_streak: number }>(sql`

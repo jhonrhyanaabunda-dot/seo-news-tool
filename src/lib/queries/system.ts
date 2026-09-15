@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { crawlerWorkers, dealerships, emailReports, jobs, seoScans, systemLogs, users } from "@/lib/db/schema";
+import { STALE_CRAWLER_HOURS } from "@/lib/jobs/maintenance";
 
 export async function getJobOverview() {
   const counts = await db.select({ status: jobs.status, n: sql<number>`count(*)::int` }).from(jobs).groupBy(jobs.status);
@@ -28,7 +29,12 @@ export async function getJobOverview() {
 }
 
 export async function getCrawlers() {
-  const workers = await db.select().from(crawlerWorkers).orderBy(crawlerWorkers.region, desc(crawlerWorkers.lastSeenAt)).limit(50);
+  const workers = await db
+    .select()
+    .from(crawlerWorkers)
+    .where(sql`${crawlerWorkers.lastSeenAt} > now() - make_interval(hours => ${STALE_CRAWLER_HOURS}::int)`)
+    .orderBy(crawlerWorkers.region, desc(crawlerWorkers.lastSeenAt))
+    .limit(50);
   const waiting = await db
     .select({ region: jobs.region, n: sql<number>`count(*)::int` })
     .from(jobs)

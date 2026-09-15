@@ -7,6 +7,8 @@ import { pruneSeoArticles } from "@/lib/news/seo-industry";
 
 /** Scans per dealership whose page/issue detail rows are kept. Older scans keep their summary, score and fingerprints. */
 export const DETAIL_SCANS_KEPT = 10;
+/** Crawler rows not heard from for this long are removed (and hidden from Admin → System). */
+export const STALE_CRAWLER_HOURS = 24;
 
 /**
  * Daily housekeeping so storage stays bounded as dealership count grows.
@@ -46,6 +48,8 @@ export async function runMaintenance() {
   result.emailsDeleted = count(await db.execute(sql`delete from email_reports where created_at < now() - make_interval(days => ${days}::int)`));
   result.jobsDeleted = count(await db.execute(sql`delete from jobs where status in ('completed','failed','cancelled') and created_at < now() - interval '30 days'`));
   result.logsDeleted = count(await db.execute(sql`delete from system_logs where created_at < now() - interval '90 days'`));
+  // Crawler processes that stopped (restarts, redeploys) leave rows behind; a live crawler reports every few minutes.
+  result.staleCrawlersDeleted = count(await db.execute(sql`delete from crawler_workers where last_seen_at < now() - make_interval(hours => ${STALE_CRAWLER_HOURS}::int)`));
   result.sessionsDeleted = count(await db.execute(sql`delete from sessions where expires_at < now()`));
   result.rateLimitsDeleted = count(await db.execute(sql`delete from rate_limits where window_start < now() - interval '1 day'`));
   // Abandoned scans (e.g. job deleted) never stay "in progress" forever.

@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { cleanText } from "@/lib/security/sanitize";
 import { safeFetch } from "@/lib/seo/fetcher";
 import { MAX_ARTICLES_PER_QUERY } from "./config";
+import { conditionalHeaders, FeedRateLimitedError, parseRetryAfter } from "./feed-http";
 
 /**
  * News source integrations. Each provider is isolated behind the same
@@ -225,7 +226,32 @@ export const ALL_PROVIDERS: NewsProvider[] = [googleRss, bingRss, newsApi, gnews
 
 /** Items of a configured RSS/Atom feed (dealership news, manufacturer newsroom, publisher feed). */
 export async function fetchSourceFeed(url: string, sourceLabel: string, lookbackDays: number): Promise<RawArticle[]> {
-  const items = await fetchFeed(url);
+  return feedArticles(await fetchFeed(url), sourceLabel, lookbackDays);
+}
+
+export type ConditionalFeedResult = { notModified: true } | { notModified: false; articles: RawArticle[]; etag: string | null; lastModified: string | null };
+
+/**
+ * Read a feed only if it changed since the last read (ETag / Last-Modified), for
+ * feeds polled on a schedule. HTTP 429/503 throws FeedRateLimitedError with the
+ * publisher's requested pause, and is never retried.
+ */
+export async function fetchFeedIfChanged(url: string, sourceLabel: string, lookbackDays: number, validators: { etag: string | null; lastModified: string | null }): Promise<ConditionalFeedResult> {
+  const res = await safeFetch(url, { accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.5", retries: 1, maxBytes: 4 * 1024 * 1024, headers: conditionalHeaders(validators) });
+  if (res.status === 304) return { notModified: true };
+  if (res.status === 429 || res.status === 503) throw new FeedRateLimitedError(res.status, parseRetryAfter(res.headers["retry-after"]));
+  if (!res.ok || !res.body) throw new Error(`Feed unavailable: request failed (${res.status ?? res.errorCode ?? "no response"})`);
+  if (!looksLikeFeed(res.body)) throw new Error(`Feed unavailable: the feed endpoint returned ${res.contentType?.split(";")[0] ?? "unknown content type"} instead of a feed`);
+  let items: RssItem[];
+  try {
+    items = ((await rss.parseString(res.body)).items ?? []).slice(0, MAX_ARTICLES_PER_QUERY);
+  } catch (err) {
+    throw new Error(`Feed unavailable: the feed could not be parsed (${(err instanceof Error ? err.message : String(err)).split("\n")[0]})`);
+  }
+  return { notModified: false, articles: feedArticles(items, sourceLabel, lookbackDays), etag: res.headers["etag"]?.slice(0, 500) ?? null, lastModified: res.headers["last-modified"]?.slice(0, 100) ?? null };
+}
+
+function feedArticles(items: RssItem[], sourceLabel: string, lookbackDays: number): RawArticle[] {
   const cutoff = Date.now() - lookbackDays * 86_400_000;
   return items
     .filter((i) => i.title && i.link)

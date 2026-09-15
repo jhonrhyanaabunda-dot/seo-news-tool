@@ -179,12 +179,16 @@ export default async function SeoNewsPage({ searchParams }: { searchParams: Prom
                         {f.priority === 1 && <Badge tone="info">Official</Badge>}
                         {!f.isEnabled && <Badge>Off</Badge>}
                         {f.isEnabled && f.lastStatus === "error" && <Badge tone="critical">Error</Badge>}
+                        {f.isEnabled && f.paused && <Badge tone="warning">Paused</Badge>}
                       </p>
                       <p className="text-xs text-slate-500">
                         {f.articles === 0 && f.lastStatus === "ok" ? "No posts in the last 30 days" : `${f.articles} article${f.articles === 1 ? "" : "s"}`}
                         {f.lastFetchedAt ? ` · read ${fmtRelative(f.lastFetchedAt)}` : " · not read yet"}
                       </p>
                       {isAdmin && f.lastStatus === "error" && f.lastError && <p className="mt-0.5 break-words text-xs text-red-700">{f.lastError}</p>}
+                      {f.paused && f.nextFetchAfter && (
+                        <p className="mt-0.5 text-xs text-amber-700">The publisher asked us to slow down; next read {fmtRelative(f.nextFetchAfter)}.</p>
+                      )}
                     </div>
                     {isAdmin && (
                       <div className="flex shrink-0 gap-1">

@@ -85,6 +85,13 @@
       "when": 1789482739803,
       "tag": "0011_seo_industry_news",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789486970721,
+      "tag": "0012_seo_feed_polling",
+      "breakpoints": true
     }
   ]
 }

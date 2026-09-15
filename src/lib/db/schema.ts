@@ -582,8 +582,14 @@ export const seoFeeds = pgTable(
     priority: integer("priority").notNull().default(3),
     isEnabled: boolean("is_enabled").notNull().default(true),
     lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+    /** "ok", "error" or "rate_limited" (the publisher answered 429/503; the feed is paused until `nextFetchAfter`). */
     lastStatus: varchar("last_status", { length: 20 }),
     lastError: text("last_error"),
+    /** Validators from the last full read, sent back so an unchanged feed answers 304 Not Modified. */
+    etag: varchar("etag", { length: 500 }),
+    lastModified: varchar("last_modified", { length: 100 }),
+    /** Don't request the feed before this time (set when the publisher asks us to slow down). */
+    nextFetchAfter: timestamp("next_fetch_after", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

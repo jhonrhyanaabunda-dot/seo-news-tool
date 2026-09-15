@@ -55,9 +55,11 @@ export interface FetchOptions {
   sameSiteOnly?: boolean;
   retries?: number;
   accept?: string;
+  /** Extra request headers, e.g. If-None-Match / If-Modified-Since for conditional feed requests. */
+  headers?: Record<string, string>;
 }
 
-const DEFAULTS: Required<Omit<FetchOptions, "accept">> = {
+const DEFAULTS: Required<Omit<FetchOptions, "accept" | "headers">> = {
   timeoutMs: 15000,
   maxBytes: 3 * 1024 * 1024,
   maxRedirects: 5,
@@ -139,7 +141,7 @@ export async function safeFetch(inputUrl: string, options: FetchOptions = {}): P
   return last!;
 }
 
-async function fetchOnce(inputUrl: string, opts: Required<Omit<FetchOptions, "accept">> & { accept?: string }): Promise<FetchResult> {
+async function fetchOnce(inputUrl: string, opts: Required<Omit<FetchOptions, "accept" | "headers">> & { accept?: string; headers?: Record<string, string> }): Promise<FetchResult> {
   const started = performance.now();
   const chain: string[] = [];
   const controller = new AbortController();
@@ -182,6 +184,7 @@ async function fetchOnce(inputUrl: string, opts: Required<Omit<FetchOptions, "ac
           Accept: opts.accept ?? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
           "Accept-Encoding": "gzip, deflate, br",
+          ...opts.headers,
         },
       });
       const ttfbMs = Math.round(performance.now() - started);

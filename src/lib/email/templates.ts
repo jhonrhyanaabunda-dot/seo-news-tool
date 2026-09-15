@@ -263,6 +263,44 @@ export function renderAlertEmail(input: { title: string; message: string; dealer
   return { subject: `⚠ ${input.title}`, html: layout(input.title, input.message.slice(0, 120), body, input.dashboardUrl), text };
 }
 
+/** Crawler availability notice: scans are waiting with no crawler online, or crawling has resumed. */
+export function renderCrawlerStatusEmail(input: {
+  status: "offline" | "online";
+  regions: string[];
+  waitingScans: number;
+  /** When the oldest waiting scan was queued (offline) or when the outage was first reported (online). */
+  since: Date;
+  /** The most recently seen crawler, e.g. "crawler-us-east-MacBook-Pro.local-4921". */
+  lastCrawler: { id: string; lastSeenAt: Date } | null;
+  systemUrl: string;
+  dashboardUrl: string;
+  timeZone?: string;
+}) {
+  const tz = input.timeZone ?? "UTC";
+  const when = (d: Date) => new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(d);
+  const regions = input.regions.join(", ");
+  const offline = input.status === "offline";
+  const title = offline ? "SEO scans are waiting: no crawler online" : "Crawler back online: SEO scans are running again";
+  const lines = offline
+    ? [
+        `${input.waitingScans} SEO scan${input.waitingScans === 1 ? " is" : "s are"} queued for ${regions}, the oldest since ${when(input.since)}, but no crawler worker is online to run ${input.waitingScans === 1 ? "it" : "them"}.`,
+        input.lastCrawler ? `Last crawler seen: ${input.lastCrawler.id}, at ${when(input.lastCrawler.lastSeenAt)}.` : "No crawler has reported recently.",
+        "Queued scans are kept and run as soon as a crawler is back — nothing is lost, but dealership results will not refresh until then.",
+        "To fix: make sure the computer or server running the crawler worker is on, awake and connected, and that the worker process is running. Admin → System shows which crawlers are online.",
+      ]
+    : [
+        `A crawler is online again in ${regions}${input.lastCrawler ? ` (${input.lastCrawler.id})` : ""} and is working through the queued SEO scans.`,
+        `Scans had been waiting since ${when(input.since)}.`,
+      ];
+  const body = `
+  <div style="display:inline-block;background:${offline ? "#fef3c7" : "#d1fae5"};color:${offline ? C.warning : C.good};font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em;">${offline ? "Action needed" : "Resolved"}</div>
+  <h2 style="font-size:18px;margin:14px 0 10px;color:${C.brand};">${escapeHtml(title)}</h2>
+  ${lines.map((l) => `<p style="font-size:14px;line-height:1.6;margin:0 0 10px;">${escapeHtml(l)}</p>`).join("")}
+  <div style="margin-top:6px;"><a href="${escapeHtml(input.systemUrl)}" style="font-size:14px;color:${C.accent};font-weight:600;">Open Admin → System →</a></div>`;
+  const text = [title, "", ...lines, "", `Admin → System: ${input.systemUrl}`].join("\n");
+  return { subject: `${offline ? "⚠ " : ""}${title}`, html: layout(title, lines[0].slice(0, 120), body, input.dashboardUrl), text };
+}
+
 export function renderTestEmail(dashboardUrl: string) {
   const body = `<p style="font-size:14px;line-height:1.6;margin:0;">This is a test message from the A3 SEO &amp; News Monitor. If you can read this, email delivery is configured correctly.</p>`;
   return {
