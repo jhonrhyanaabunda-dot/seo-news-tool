@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { changeOwnPasswordAction, createUserAction, resetPasswordAction, type UserFormState } from "@/app/actions/users";
+import { changeOwnPasswordAction, createUserAction, editUserAction, resetPasswordAction, type UserFormState } from "@/app/actions/users";
 
 function Result({ state }: { state: UserFormState }) {
   if (!state) return null;
@@ -53,6 +53,34 @@ export function CreateUserForm() {
       </button>
       <Result state={state} />
     </form>
+  );
+}
+
+export function EditUserForm({ user }: { user: { id: number; name: string; email: string } }) {
+  const [state, action, pending] = useActionState<UserFormState, FormData>(editUserAction, undefined);
+  return (
+    <details className="mt-1 text-sm">
+      <summary className="inline cursor-pointer text-xs font-medium text-brand-700 hover:underline">Edit</summary>
+      <form action={action} className="mt-2 max-w-xs space-y-2">
+        <input type="hidden" name="userId" value={user.id} />
+        <div>
+          <label htmlFor={`edit-name-${user.id}`} className="label">
+            Name
+          </label>
+          <input id={`edit-name-${user.id}`} name="name" defaultValue={user.name} required minLength={2} className="input" />
+        </div>
+        <div>
+          <label htmlFor={`edit-email-${user.id}`} className="label">
+            Email
+          </label>
+          <input id={`edit-email-${user.id}`} name="email" type="email" defaultValue={user.email} required className="input" />
+        </div>
+        <button type="submit" className="btn btn-sm" disabled={pending}>
+          {pending ? "Saving…" : "Save"}
+        </button>
+        <Result state={state} />
+      </form>
+    </details>
   );
 }
 

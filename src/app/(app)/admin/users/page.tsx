@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { getUsers } from "@/lib/queries/system";
-import { updateUserAction } from "@/app/actions/users";
-import { CreateUserForm, ResetPasswordForm } from "@/components/admin/user-forms";
+import { deleteUserAction, updateUserAction } from "@/app/actions/users";
+import { CreateUserForm, EditUserForm, ResetPasswordForm } from "@/components/admin/user-forms";
 import { SubmitButton } from "@/components/client/submit-button";
 import { Badge, Card, PageHeader, TableWrap } from "@/components/ui";
 import { fmtDateTime } from "@/components/format";
@@ -40,6 +40,7 @@ export default async function UsersPage() {
                     </div>
                     <div className="text-xs text-slate-500">{u.email}</div>
                     {!u.isActive && <Badge tone="critical">Deactivated</Badge>}
+                    <EditUserForm user={{ id: u.id, name: u.name, email: u.email }} />
                   </td>
                   <td>{u.role === "admin" ? <Badge tone="accent">Administrator</Badge> : <Badge>Viewer</Badge>}</td>
                   <td className="whitespace-nowrap text-slate-600">{fmtDateTime(u.lastLoginAt, tz)}</td>
@@ -59,6 +60,12 @@ export default async function UsersPage() {
                           </SubmitButton>
                         </form>
                         <ResetPasswordForm userId={u.id} />
+                        <form action={deleteUserAction}>
+                          <input type="hidden" name="userId" value={u.id} />
+                          <SubmitButton className="btn-danger btn-sm" confirm={`Delete ${u.email}? This permanently removes the account and signs them out. It cannot be undone.`} pendingText="…">
+                            Delete
+                          </SubmitButton>
+                        </form>
                       </div>
                     )}
                   </td>

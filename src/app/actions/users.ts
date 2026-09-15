@@ -76,3 +76,35 @@ export async function changeOwnPasswordAction(_prev: UserFormState, formData: Fo
   await db.update(users).set({ passwordHash: await hashPassword(next), updatedAt: new Date() }).where(eq(users.id, me.id));
   return { ok: "Your password has been changed." };
 }
+
+export async function editUserAction(_prev: UserFormState, formData: FormData): Promise<UserFormState> {
+  const admin = await assertAdmin();
+  const parsed = z
+    .object({
+      userId: z.coerce.number().int().positive(),
+      email: z.string().trim().toLowerCase().email().max(320),
+      name: z.string().transform((v) => cleanText(v, 200)).pipe(z.string().min(2)),
+    })
+    .safeParse({ userId: formData.get("userId"), email: formData.get("email"), name: formData.get("name") });
+  if (!parsed.success) return { error: "Enter a name (at least 2 characters) and a valid email address." };
+  const { userId, email, name } = parsed.data;
+  const [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!u) return { error: "User not found." };
+  const [taken] = await db.select({ id: users.id }).from(users).where(and(sql`lower(${users.email}) = ${email}`, ne(users.id, userId))).limit(1);
+  if (taken) return { error: "Another user already has this email address." };
+  await db.update(users).set({ name, email, updatedAt: new Date() }).where(eq(users.id, userId));
+  await logger.info("admin", "User edited", { by: admin.email, userId, ...(u.email !== email ? { from: u.email, to: email } : {}), ...(u.name !== name ? { name } : {}) });
+  revalidatePath("/admin/users");
+  revalidatePath("/", "layout"); // the sidebar shows the signed-in user's name and email
+  return { ok: "Saved." };
+}
+
+export async function deleteUserAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const id = z.coerce.number().int().positive().parse(formData.get("userId"));
+  // Admins can't delete themselves, so at least one administrator (the one acting) always remains.
+  if (id === admin.id) return;
+  const [u] = await db.delete(users).where(eq(users.id, id)).returning({ email: users.email }); // sessions are removed with the user
+  if (u) await logger.info("admin", "User deleted", { by: admin.email, userId: id, email: u.email });
+  revalidatePath("/admin/users");
+}
