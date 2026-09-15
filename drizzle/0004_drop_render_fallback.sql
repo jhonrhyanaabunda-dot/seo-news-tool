@@ -1,0 +1,1 @@
+ALTER TABLE "dealerships" DROP COLUMN "render_fallback";

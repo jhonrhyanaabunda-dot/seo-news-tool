@@ -1,0 +1,20 @@
+# Build context for worker/Dockerfile. Dependencies are installed inside the
+# image, so host-built artefacts must never be copied in: the local
+# node_modules holds macOS binaries, and .next is a build for the web app the
+# worker does not run.
+node_modules
+.next
+.git
+.gitignore
+tsconfig.tsbuildinfo
+npm-debug.log*
+.env
+.env.local
+.env.*.local
+tests
+docs
+deploy
+README.md
+AGENTS.md
+CLAUDE.md
+.DS_Store

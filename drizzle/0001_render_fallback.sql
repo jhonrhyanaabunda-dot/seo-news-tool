@@ -1,0 +1,1 @@
+ALTER TABLE "dealerships" ADD COLUMN "render_fallback" boolean DEFAULT false NOT NULL;

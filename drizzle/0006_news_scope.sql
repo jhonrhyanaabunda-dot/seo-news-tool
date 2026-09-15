@@ -1,0 +1,2 @@
+ALTER TABLE "news_articles" ADD COLUMN "scope" varchar(20) DEFAULT 'brand' NOT NULL;--> statement-breakpoint
+CREATE INDEX "news_articles_dealer_scope_idx" ON "news_articles" USING btree ("dealership_id","scope","relevance");

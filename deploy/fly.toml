@@ -1,0 +1,35 @@
+# Fly.io template for a regional crawler worker (see README → "Regional crawler workers").
+# One app per region, e.g.:
+#   fly launch --copy-config --name a3-crawler-us-east --region iad --no-deploy
+#   fly secrets set DATABASE_URL=... AUTH_SECRET=... CRON_SECRET=... APP_URL=... PAGESPEED_API_KEY=... -a a3-crawler-us-east
+#   fly deploy -a a3-crawler-us-east --config deploy/fly.toml --env WORKER_REGION=us-east
+# US-Central: --region ord (Chicago) or dfw (Dallas), WORKER_REGION=us-central
+# US-West:    --region sjc (San Jose) or lax,       WORKER_REGION=us-west
+app = "a3-crawler-us-east"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../worker/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  WORKER_REGION = "us-east"
+  # Crawl-only regional worker; Vercel handles news, emails and maintenance.
+  WORKER_JOB_TYPES = "seo_scan"
+  CRAWLER_MODE = "worker"
+  PORT = "8080"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    path = "/"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

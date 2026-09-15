@@ -1,0 +1,23 @@
+# Alternative scheduler for Vercel Hobby plans (Hobby cron jobs may only run once a day).
+# Copy to .github/workflows/scheduler.yml and add two repository secrets:
+#   APP_URL      e.g. https://seo.example.com
+#   CRON_SECRET  same value as the Vercel environment variable
+# Then change vercel.json's cron schedule to daily ("0 11 * * *") or remove it.
+name: Scheduler heartbeat
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+concurrency:
+  group: scheduler-heartbeat
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Call cron endpoint
+        run: |
+          curl --fail-with-body -sS -m 330 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/tick"

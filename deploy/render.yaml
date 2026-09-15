@@ -1,0 +1,36 @@
+# Render Blueprint for a U.S. crawler worker (Render → New → Blueprint → select this file).
+# Same image as Fly.io/Railway: worker/Dockerfile (Chromium included). No inbound port is needed:
+# the worker pulls jobs from Postgres, so the dashboard never calls it.
+#
+# Secrets marked `sync: false` are entered in the Render dashboard; use the SAME
+# DATABASE_URL, AUTH_SECRET, CRON_SECRET and APP_URL as the Vercel project.
+services:
+  - type: worker
+    name: a3-crawler-us-east
+    runtime: docker
+    dockerfilePath: ./worker/Dockerfile
+    dockerContext: .
+    region: virginia # US-East. Use "ohio" for us-central or "oregon" for us-west (and set WORKER_REGION to match).
+    plan: starter # Chromium needs ~512 MB+; use "standard" for BROWSER_MAX_CONCURRENCY above 2.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WORKER_REGION
+        value: us-east
+      # Crawl-only: Vercel Cron keeps handling news, reports, digests and maintenance.
+      - key: WORKER_JOB_TYPES
+        value: seo_scan
+      - key: CRAWLER_MODE
+        value: worker
+      - key: BROWSER_RENDERING
+        value: fallback
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: PAGESPEED_API_KEY
+        sync: false
