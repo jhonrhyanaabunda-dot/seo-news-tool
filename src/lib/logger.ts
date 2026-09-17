@@ -40,6 +40,8 @@ export const logger = {
 };
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
+  if (!(err instanceof Error)) return String(err);
+  // Database errors wrap the real reason (connection reset, timeout…) in `cause`; without it a log only says "Failed query".
+  const cause = err.cause instanceof Error ? err.cause.message : undefined;
+  return cause && !err.message.includes(cause) ? `${err.message} (cause: ${cause})` : err.message;
 }

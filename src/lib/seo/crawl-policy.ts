@@ -40,6 +40,19 @@ export function nextBlockState(streak: number, res: { status: number | null; blo
   return { streak: next, stop: next >= CRAWL_POLICY.blockStreakToStop, rateLimited };
 }
 
+/**
+ * How many of a site's most recent scans in a row were blocked (newest first).
+ * A successful scan resets the streak, so one old block doesn't slow the schedule.
+ */
+export function consecutiveBlocked(recentOutcomes: Array<string | null>): number {
+  let n = 0;
+  for (const outcome of recentOutcomes) {
+    if (outcome !== "blocked") break;
+    n++;
+  }
+  return n;
+}
+
 /** Hours to wait before the next scheduled scan of a site whose recent scans were blocked. */
 export function blockedBackoffHours(intervalHours: number, blockedStreak: number): number {
   if (blockedStreak <= 0) return intervalHours;

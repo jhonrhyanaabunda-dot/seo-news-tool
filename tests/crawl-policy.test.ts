@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockedBackoffHours, isRetryable, nextBlockState } from "@/lib/seo/crawl-policy";
+import { blockedBackoffHours, consecutiveBlocked, isRetryable, nextBlockState } from "@/lib/seo/crawl-policy";
 import { computeOutcome } from "@/lib/seo/outcome";
 import { allRegions, resolveRegion } from "@/lib/crawler/regions";
 import { pagePriority } from "@/lib/seo/url";
@@ -54,4 +54,12 @@ test("important pages are crawled first, in the configured order", () => {
   // A nav-linked service page beats a sitemap-only one; any service page beats a blog post.
   assert.ok(pagePriority("service", { depth: 1, navLinked: true }) < pagePriority("service", { depth: 1, fromSitemap: true }));
   assert.ok(pagePriority("service", { depth: 3, fromSitemap: true }) < pagePriority("blog", { depth: 1, navLinked: true }));
+});
+
+test("only consecutive blocked scans, newest first, slow down a site's schedule", () => {
+  assert.equal(consecutiveBlocked([]), 0);
+  assert.equal(consecutiveBlocked(["completed", "blocked"]), 0, "a successful scan after a block resets the streak");
+  assert.equal(consecutiveBlocked(["blocked", "completed", "blocked"]), 1);
+  assert.equal(consecutiveBlocked(["blocked", "blocked", "partially_blocked"]), 2);
+  assert.equal(consecutiveBlocked(["blocked", null]), 1);
 });

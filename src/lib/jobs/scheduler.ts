@@ -7,7 +7,7 @@ import { logger, errorMessage } from "@/lib/logger";
 import { claimPeriod, getSettings, localParts } from "@/lib/settings";
 import { onlineRegions } from "@/lib/crawler/heartbeat";
 import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
-import { blockedBackoffHours } from "@/lib/seo/crawl-policy";
+import { blockedBackoffHours, consecutiveBlocked } from "@/lib/seo/crawl-policy";
 import { createScanAndJob, logScanEvent } from "@/lib/seo/scans";
 import { enqueueJob } from "./queue";
 
@@ -36,12 +36,12 @@ export async function scheduleDueWork(now = new Date()) {
   }
   if (s.schedulerPaused) return out;
 
-  const dueSeo = await db.execute<{ id: number; interval_hours: number; last_scan: string | null; blocked_streak: number }>(sql`
+  const dueSeo = await db.execute<{ id: number; interval_hours: number; last_scan: string | null; recent_outcomes: Array<string | null> | null }>(sql`
     select d.id, coalesce(d.scan_interval_hours, ${s.seoIntervalHours}::int) as interval_hours, d.last_seo_scan_at as last_scan,
-      (select count(*)::int from (
-         select outcome from seo_scans x where x.dealership_id = d.id and x.status in ('completed', 'failed')
+      (select array_agg(r.outcome::text order by r.created_at desc) from (
+         select outcome, created_at from seo_scans x where x.dealership_id = d.id and x.status in ('completed', 'failed')
          order by x.created_at desc limit 3
-       ) r where r.outcome = 'blocked') as blocked_streak
+       ) r) as recent_outcomes
     from ${dealerships} d
     where d.is_active and d.seo_enabled
       and (d.last_seo_scan_at is null
@@ -50,10 +50,11 @@ export async function scheduleDueWork(now = new Date()) {
     order by d.last_seo_scan_at asc nulls first, d.id asc
     limit ${MAX_SCANS_SCHEDULED_PER_TICK}
   `);
-  for (const row of dueSeo as unknown as Array<{ id: number; interval_hours: number; last_scan: string | Date | null; blocked_streak: number }>) {
+  for (const row of dueSeo as unknown as Array<{ id: number; interval_hours: number; last_scan: string | Date | null; recent_outcomes: Array<string | null> | null }>) {
     // Avoid unnecessary repeat visits to sites that keep refusing the crawler.
-    if (row.last_scan && row.blocked_streak > 0) {
-      const waitHours = blockedBackoffHours(Number(row.interval_hours), Number(row.blocked_streak));
+    const blockedStreak = consecutiveBlocked(row.recent_outcomes ?? []);
+    if (row.last_scan && blockedStreak > 0) {
+      const waitHours = blockedBackoffHours(Number(row.interval_hours), blockedStreak);
       if (new Date(row.last_scan).getTime() + waitHours * 3_600_000 > now.getTime()) {
         out.seoBackedOff++;
         continue;
