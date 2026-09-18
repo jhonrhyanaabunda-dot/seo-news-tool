@@ -17,7 +17,7 @@ export interface PageResultInput {
   redirected?: boolean | null;
 }
 
-const NETWORK_CODES = new Set(["DNS", "CONNECTION", "TLS", "TOO_MANY_REDIRECTS", "UNKNOWN"]);
+const NETWORK_CODES = new Set(["DNS", "CONNECTION", "TLS", "TOO_MANY_REDIRECTS", "UNKNOWN", "EMPTY_RESPONSE"]);
 const SKIP_CODES = new Set(["ROBOTS_BLOCKED", "REDIRECT_OFFSITE", "NOT_HTML", "DUPLICATE", "UNSAFE_URL"]);
 
 /** Returns null for a URL that has not been requested yet. */
@@ -45,6 +45,17 @@ export function classifyPageResult(p: PageResultInput): PageResultClass | null {
   return p.redirected ? "REDIRECT" : "SUCCESS";
 }
 
+/**
+ * A 2xx response with no document in it — no <title> and no text at all. Seen when a
+ * browser render is interrupted; scoring it would report a missing title, H1, viewport…
+ * for a page that is actually fine, so it is retried and, if still empty, not analysed.
+ */
+export function isEmptyDocument(body: string | null): boolean {
+  if (!body) return true;
+  if (/<title[\s>]/i.test(body)) return false;
+  return body.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, "").trim().length === 0;
+}
+
 /** Pages whose content was read and analysed. */
 export function isAnalyzed(c: PageResultClass | null): boolean {
   return c === "SUCCESS" || c === "REDIRECT";
@@ -65,7 +76,7 @@ export const RESULT_CLASS_META: Record<PageResultClass, { label: string; tone: "
   RATE_LIMITED: { label: "Rate limited", tone: "warning", description: "The website asked the monitor to slow down (429). Crawling of the site stopped." },
   SERVER_ERROR: { label: "Server error", tone: "critical", description: "The server returned a 5xx error." },
   TIMEOUT: { label: "Timeout", tone: "warning", description: "The page did not respond in time." },
-  NETWORK_ERROR: { label: "Network error", tone: "warning", description: "DNS, connection or TLS failure." },
+  NETWORK_ERROR: { label: "Network error", tone: "warning", description: "DNS, connection or TLS failure, or the page came back empty. Not analysed; not counted as an SEO issue." },
   NOT_EVALUATED: { label: "Not evaluated", tone: "neutral", description: "Crawling stopped after the website restricted access, so this page was not requested." },
   SKIPPED: { label: "Skipped", tone: "neutral", description: "Excluded by robots.txt, off-site redirect, duplicate or non-HTML." },
 };

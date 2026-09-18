@@ -187,7 +187,9 @@ export default async function SeoNewsPage({ searchParams }: { searchParams: Prom
                       </p>
                       {isAdmin && f.lastStatus === "error" && f.lastError && <p className="mt-0.5 break-words text-xs text-red-700">{f.lastError}</p>}
                       {f.paused && f.nextFetchAfter && (
-                        <p className="mt-0.5 text-xs text-amber-700">The publisher asked us to slow down; next read {fmtRelative(f.nextFetchAfter)}.</p>
+                        <p className="mt-0.5 text-xs text-amber-700">
+                          {f.lastError?.split(";")[0] ?? "Paused at the publisher’s request"}. Next try {fmtRelative(f.nextFetchAfter)}.
+                        </p>
                       )}
                     </div>
                     {isAdmin && (

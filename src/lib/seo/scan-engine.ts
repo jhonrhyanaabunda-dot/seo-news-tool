@@ -31,7 +31,7 @@ import { loadSitemap } from "./sitemap";
 import { getCached, setCached } from "./site-cache";
 import { orderSitemapUrls, sitemapCandidates } from "./sitemap-seed";
 import { detectPlatform } from "./platform";
-import { classifyPageResult, isAnalyzed, isProtected } from "./result-class";
+import { classifyPageResult, isAnalyzed, isEmptyDocument, isProtected } from "./result-class";
 import { crawlerLog, shortUrl } from "@/lib/crawler/log";
 import { pageSpeedEnabled, runPageSpeed } from "./pagespeed";
 import { detectBlock } from "./block-detect";
@@ -82,6 +82,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * crawl-policy) and are reported as "not evaluated".
  */
 async function fetchPage(url: string, opts: Parameters<typeof safeFetch>[1], renderMode: RenderMode = "auto", siteRefusesPlain = false): Promise<FetchResult> {
+  const res = await fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
+  // An interrupted browser render can come back as a 200 with an empty document; one more try usually gets the page.
+  if (opts?.headersOnly || res.status === null || res.status < 200 || res.status >= 300 || !isEmptyDocument(res.body)) return res;
+  await sleep(2000);
+  return fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
+}
+
+async function fetchPageOnce(url: string, opts: Parameters<typeof safeFetch>[1], renderMode: RenderMode, siteRefusesPlain: boolean): Promise<FetchResult> {
   const plan = planFetch(renderMode, env().BROWSER_RENDERING, { headersOnly: opts?.headersOnly });
   if (plan === "http-only") return safeFetch(url, opts);
 
@@ -620,6 +628,14 @@ async function processPageResult(
     await db
       .update(scanPages)
       .set({ ...base, status: "fetched", errorCode: res.errorCode ?? "HTTP_ERROR", errorMessage: res.errorMessage })
+      .where(eq(scanPages.id, row.id));
+    return ok;
+  }
+
+  if (isEmptyDocument(res.body)) {
+    await db
+      .update(scanPages)
+      .set({ ...base, status: "failed", errorCode: "EMPTY_RESPONSE", errorMessage: "The page came back as an empty document twice, so it was not analysed (not counted as an SEO issue)." })
       .where(eq(scanPages.id, row.id));
     return ok;
   }

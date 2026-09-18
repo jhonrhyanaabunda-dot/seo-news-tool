@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { classifyPageResult, isAnalyzed, isProtected } from "@/lib/seo/result-class";
+import { classifyPageResult, isAnalyzed, isEmptyDocument, isProtected } from "@/lib/seo/result-class";
 import { crawlJobStatus } from "@/lib/jobs/status";
 import { detectPlatform } from "@/lib/seo/platform";
 import { CHECK_PRIORITY, priorityFor, reportGroupFor } from "@/lib/seo/priority";
@@ -84,4 +84,14 @@ test("sitemap URLs are ordered by dealership page importance, deterministically"
   ]).map((u) => u.pathname);
   assert.deepEqual(order, ["/new-vehicles/", "/service", "/blog/tips", "/inventory/2024-subaru-wrx-jf1vbab60p8815677"]);
   assert.deepEqual(sitemapCandidates("https://d.com/custom.xml", ["https://d.com/sitemap.xml", "https://d.com/custom.xml"]), ["https://d.com/custom.xml", "https://d.com/sitemap.xml"]);
+});
+
+test("an empty 200 document is not analysed as a page missing its title and headings", () => {
+  assert.equal(isEmptyDocument(""), true);
+  assert.equal(isEmptyDocument(null), true);
+  assert.equal(isEmptyDocument("<html><head></head><body></body></html>"), true);
+  assert.equal(isEmptyDocument("<html><head><script>var x = 1;</script></head><body>  </body></html>"), true);
+  assert.equal(isEmptyDocument("<html><head><title>BMW M4</title></head><body></body></html>"), false);
+  assert.equal(isEmptyDocument("<html><body><p>New BMW M4 in stock</p></body></html>"), false);
+  assert.equal(classifyPageResult({ status: "failed", httpStatus: 200, errorCode: "EMPTY_RESPONSE" }), "NETWORK_ERROR");
 });

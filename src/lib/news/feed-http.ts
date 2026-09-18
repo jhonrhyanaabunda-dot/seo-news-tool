@@ -30,12 +30,17 @@ export function conditionalHeaders(validators: { etag: string | null; lastModifi
   return h;
 }
 
+/** The publisher refused (401/403) or asked us to slow down (429/503): pause the feed instead of re-requesting it every run. */
 export class FeedRateLimitedError extends Error {
   constructor(
     readonly status: number,
     readonly retryAfterMs: number,
   ) {
-    super(`The publisher asked us to slow down (HTTP ${status}); paused for ${Math.round(retryAfterMs / 60_000)} min`);
+    super(
+      status === 401 || status === 403
+        ? `The publisher's website refuses the A3SEOMonitor crawler (HTTP ${status}); checking again in ${Math.round(retryAfterMs / 3_600_000)} h`
+        : `The publisher asked us to slow down (HTTP ${status}); paused for ${Math.round(retryAfterMs / 60_000)} min`,
+    );
     this.name = "FeedRateLimitedError";
   }
 }

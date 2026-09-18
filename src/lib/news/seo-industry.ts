@@ -86,7 +86,7 @@ export async function runIndustryNewsFetch(): Promise<IndustryNewsResult> {
         out.paused++;
         const until = new Date(Date.now() + err.retryAfterMs);
         await db.update(seoFeeds).set({ lastFetchedAt: new Date(), lastStatus: "rate_limited", lastError: err.message, nextFetchAfter: until, updatedAt: new Date() }).where(eq(seoFeeds.id, feed.id));
-        await logger.info("seo-news", `Feed "${feed.label}" paused until ${until.toISOString()} at the publisher's request`, { url: feed.url, status: err.status });
+        await logger.info("seo-news", `Feed "${feed.label}" paused until ${until.toISOString()}`, { url: feed.url, status: err.status, reason: err.message });
         continue;
       }
       out.errors++;

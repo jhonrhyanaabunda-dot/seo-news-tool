@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conditionalHeaders, DEFAULT_FEED_BACKOFF_MS, MAX_FEED_BACKOFF_MS, parseRetryAfter } from "@/lib/news/feed-http";
+import { conditionalHeaders, DEFAULT_FEED_BACKOFF_MS, FeedRateLimitedError, MAX_FEED_BACKOFF_MS, parseRetryAfter } from "@/lib/news/feed-http";
 import { renderCrawlerStatusEmail } from "@/lib/email/templates";
 
 test("Retry-After is honoured as seconds or an HTTP date, within sensible bounds", () => {
@@ -38,4 +38,9 @@ test("crawler offline and recovery emails say what is waiting and what to do", (
   assert.equal(on.subject, "Crawler back online: SEO scans are running again");
   assert.match(on.text, /online again in us-east \(crawler-us-east-mac\.local-4921\)/);
   assert.ok(on.html.includes("Resolved"));
+});
+
+test("a publisher's refusal and a slow-down request are explained differently", () => {
+  assert.match(new FeedRateLimitedError(403, MAX_FEED_BACKOFF_MS).message, /refuses the A3SEOMonitor crawler \(HTTP 403\); checking again in 24 h/);
+  assert.match(new FeedRateLimitedError(429, 30 * 60_000).message, /asked us to slow down \(HTTP 429\); paused for 30 min/);
 });

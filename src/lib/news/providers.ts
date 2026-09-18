@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { cleanText } from "@/lib/security/sanitize";
 import { safeFetch } from "@/lib/seo/fetcher";
 import { MAX_ARTICLES_PER_QUERY } from "./config";
-import { conditionalHeaders, FeedRateLimitedError, parseRetryAfter } from "./feed-http";
+import { conditionalHeaders, FeedRateLimitedError, MAX_FEED_BACKOFF_MS, parseRetryAfter } from "./feed-http";
 
 /**
  * News source integrations. Each provider is isolated behind the same
@@ -240,6 +240,8 @@ export async function fetchFeedIfChanged(url: string, sourceLabel: string, lookb
   const res = await safeFetch(url, { accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.5", retries: 1, maxBytes: 4 * 1024 * 1024, headers: conditionalHeaders(validators) });
   if (res.status === 304) return { notModified: true };
   if (res.status === 429 || res.status === 503) throw new FeedRateLimitedError(res.status, parseRetryAfter(res.headers["retry-after"]));
+  // A refusal (firewall / bot protection) is the publisher's decision: check once a day rather than every run.
+  if (res.status === 401 || res.status === 403) throw new FeedRateLimitedError(res.status, MAX_FEED_BACKOFF_MS);
   if (!res.ok || !res.body) throw new Error(`Feed unavailable: request failed (${res.status ?? res.errorCode ?? "no response"})`);
   if (!looksLikeFeed(res.body)) throw new Error(`Feed unavailable: the feed endpoint returned ${res.contentType?.split(";")[0] ?? "unknown content type"} instead of a feed`);
   let items: RssItem[];
