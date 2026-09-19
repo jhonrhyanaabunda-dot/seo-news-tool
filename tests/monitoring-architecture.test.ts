@@ -93,5 +93,7 @@ test("an empty 200 document is not analysed as a page missing its title and head
   assert.equal(isEmptyDocument("<html><head><script>var x = 1;</script></head><body>  </body></html>"), true);
   assert.equal(isEmptyDocument("<html><head><title>BMW M4</title></head><body></body></html>"), false);
   assert.equal(isEmptyDocument("<html><body><p>New BMW M4 in stock</p></body></html>"), false);
+  assert.equal(isEmptyDocument('<html><body><a href="/new"><img src="banner.jpg"></a></body></html>'), false, "an image-only page is a real page");
+  assert.equal(isEmptyDocument('<html><head><meta http-equiv="refresh" content="0;url=/home"></head></html>'), false, "a meta refresh is a real page");
   assert.equal(classifyPageResult({ status: "failed", httpStatus: 200, errorCode: "EMPTY_RESPONSE" }), "NETWORK_ERROR");
 });

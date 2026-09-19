@@ -2,6 +2,8 @@ import "server-only";
 import { db } from "@/lib/db";
 import { systemLogs } from "@/lib/db/schema";
 
+export { isTransientNetworkError } from "./errors";
+
 type Level = "info" | "warn" | "error";
 
 /**

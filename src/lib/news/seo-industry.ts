@@ -139,7 +139,8 @@ export async function addSeoFeed(input: { label: string; url: string; official: 
 }
 
 export async function setSeoFeedEnabled(id: number, enabled: boolean): Promise<void> {
-  await db.update(seoFeeds).set({ isEnabled: enabled, updatedAt: new Date() }).where(eq(seoFeeds.id, id));
+  // Turning a feed back on is an explicit request to read it again, e.g. after the publisher allow-listed the crawler.
+  await db.update(seoFeeds).set({ isEnabled: enabled, ...(enabled ? { nextFetchAfter: null } : {}), updatedAt: new Date() }).where(eq(seoFeeds.id, id));
 }
 
 export async function removeSeoFeed(id: number): Promise<void> {

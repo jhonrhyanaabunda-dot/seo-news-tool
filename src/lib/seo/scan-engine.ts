@@ -84,7 +84,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function fetchPage(url: string, opts: Parameters<typeof safeFetch>[1], renderMode: RenderMode = "auto", siteRefusesPlain = false): Promise<FetchResult> {
   const res = await fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
   // An interrupted browser render can come back as a 200 with an empty document; one more try usually gets the page.
-  if (opts?.headersOnly || res.status === null || res.status < 200 || res.status >= 300 || !isEmptyDocument(res.body)) return res;
+  // Only a real, empty 2xx document is retried; non-HTML (NOT_HTML, body null) and any error result are returned as they are.
+  if (opts?.headersOnly || res.errorCode || res.body === null || res.status === null || res.status < 200 || res.status >= 300 || !isEmptyDocument(res.body)) return res;
   await sleep(2000);
   return fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
 }
@@ -1087,7 +1088,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
     .slice(0, 20)
     .map((p) => ({ url: p.finalUrl ?? p.url, status: p.httpStatus, reason: p.errorMessage ?? "Access restricted" }));
   // Issues on pages we could not re-check are unknown, not "resolved".
-  const notEvaluatedKeys = new Set(pages.filter((p) => p.errorCode === "BLOCKED" || p.errorCode === "NOT_EVALUATED").map((p) => urlKey(p.url)));
+  const notEvaluatedKeys = new Set(pages.filter((p) => p.errorCode === "BLOCKED" || p.errorCode === "NOT_EVALUATED" || p.errorCode === "EMPTY_RESPONSE").map((p) => urlKey(p.url)));
 
   const comparable = Boolean(baseline) && siteAvailable && !crawlBlocked;
   const diff = diffFingerprints(comparable ? baseline!.issueFingerprints : null, fingerprints);

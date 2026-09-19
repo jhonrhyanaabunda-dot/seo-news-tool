@@ -21,7 +21,7 @@ export function PageHeader({ title, description, actions, breadcrumb }: { title:
 
 export function Card({ title, description, actions, children, className, bodyClassName }: { title?: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; bodyClassName?: string }) {
   return (
-    <section className={clsx("rounded-lg border border-slate-200 bg-white shadow-sm", className)}>
+    <section className={clsx("min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm", className)}>
       {(title || actions) && (
         <header className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <div>
@@ -235,7 +235,8 @@ export function Pagination({ page, totalPages, hrefFor }: { page: number; totalP
 
 export function TableWrap({ children, caption }: { children: React.ReactNode; caption: string }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+    // relative: screen-reader-only labels are absolutely positioned; without it they escape the scroll box and widen the page on phones.
+    <div className="relative overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
       <table className="table-base">
         <caption className="sr-only">{caption}</caption>
         {children}

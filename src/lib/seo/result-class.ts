@@ -52,7 +52,8 @@ export function classifyPageResult(p: PageResultInput): PageResultClass | null {
  */
 export function isEmptyDocument(body: string | null): boolean {
   if (!body) return true;
-  if (/<title[\s>]/i.test(body)) return false;
+  // A title, or content without text (images, links, frames, a meta refresh), means the document did arrive.
+  if (/<title[\s>]|<(img|iframe|frameset|a)[\s>]|<meta[^>]+http-equiv=["']?refresh/i.test(body)) return false;
   return body.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, "").trim().length === 0;
 }
 

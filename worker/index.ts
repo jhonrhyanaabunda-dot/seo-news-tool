@@ -41,7 +41,10 @@ async function main() {
       if (r.processed > 0) console.log(`[worker] processed=${r.processed} completed=${r.completed} continued=${r.continued} failed=${r.failed} in ${r.durationMs}ms`);
       if (r.processed === 0) await new Promise((res) => setTimeout(res, POLL_MS));
     } catch (err) {
-      console.error("[worker] tick failed", err);
+      // A dropped connection (Mac waking up, Wi-Fi change) recovers on the next poll: one line, not a stack trace.
+      const { isTransientNetworkError, errorMessage } = await import("@/lib/logger");
+      if (isTransientNetworkError(err)) console.warn(`[worker] tick skipped: connection problem (${errorMessage(err).split("\n").pop()})`);
+      else console.error("[worker] tick failed", err);
       await new Promise((res) => setTimeout(res, POLL_MS));
     }
   }

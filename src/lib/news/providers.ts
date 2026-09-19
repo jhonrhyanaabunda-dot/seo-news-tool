@@ -237,7 +237,8 @@ export type ConditionalFeedResult = { notModified: true } | { notModified: false
  * publisher's requested pause, and is never retried.
  */
 export async function fetchFeedIfChanged(url: string, sourceLabel: string, lookbackDays: number, validators: { etag: string | null; lastModified: string | null }): Promise<ConditionalFeedResult> {
-  const res = await safeFetch(url, { accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.5", retries: 1, maxBytes: 4 * 1024 * 1024, headers: conditionalHeaders(validators) });
+  // No immediate retry: the feed is read again on the next scheduled run, and a 503 must not be repeated at once.
+  const res = await safeFetch(url, { accept: "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.5", retries: 0, maxBytes: 4 * 1024 * 1024, headers: conditionalHeaders(validators) });
   if (res.status === 304) return { notModified: true };
   if (res.status === 429 || res.status === 503) throw new FeedRateLimitedError(res.status, parseRetryAfter(res.headers["retry-after"]));
   // A refusal (firewall / bot protection) is the publisher's decision: check once a day rather than every run.

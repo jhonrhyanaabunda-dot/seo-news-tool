@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import type { Job } from "@/lib/db/schema";
 import { env } from "@/lib/env";
-import { logger, errorMessage } from "@/lib/logger";
+import { logger, errorMessage, isTransientNetworkError } from "@/lib/logger";
 import { dedicatedWorkerOnline, heartbeat, touchWorker } from "@/lib/crawler/heartbeat";
 import { runSeoScanStep } from "@/lib/seo/scan-engine";
 import { markScanFailed } from "@/lib/seo/scans";
@@ -82,7 +82,7 @@ export async function runTick(opts: { budgetMs: number; role: RunnerRole; worker
     try {
       result.scheduled = await scheduleDueWork();
     } catch (err) {
-      await logger.error("scheduler", "Scheduling failed", { error: errorMessage(err) });
+      await (isTransientNetworkError(err) ? logger.warn : logger.error)("scheduler", "Scheduling failed", { error: errorMessage(err) });
     }
   }
 
@@ -94,7 +94,7 @@ export async function runTick(opts: { budgetMs: number; role: RunnerRole; worker
       }
     }
   } catch (err) {
-    await logger.error("jobs", "Stale job recovery failed", { error: errorMessage(err) });
+    await (isTransientNetworkError(err) ? logger.warn : logger.error)("jobs", "Stale job recovery failed", { error: errorMessage(err) });
   }
 
   const loop = async () => {

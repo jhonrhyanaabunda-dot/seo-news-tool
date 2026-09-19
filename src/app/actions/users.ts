@@ -14,6 +14,29 @@ import { cleanText } from "@/lib/security/sanitize";
 
 export type UserFormState = { error?: string; ok?: string; tempPassword?: string } | undefined;
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Run a change that removes `targetId` as an active administrator only if another active administrator remains.
+ * The admin rows are locked first, so two admins removing each other at the same moment can't both succeed.
+ * Returns undefined (and changes nothing) when it would leave no administrator.
+ */
+async function keepAnAdmin<T>(targetId: number, change: (tx: Tx) => Promise<T>): Promise<T | undefined> {
+  return db.transaction(async (tx) => {
+    const admins = await tx.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.isActive, true))).for("update");
+    if (!admins.some((a) => a.id !== targetId)) return undefined;
+    return change(tx);
+  });
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err, i = 0; e && i < 4; i++) {
+    if ((e as { code?: string }).code === "23505") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export async function createUserAction(_prev: UserFormState, formData: FormData): Promise<UserFormState> {
   const admin = await assertAdmin();
   const parsed = z
@@ -41,11 +64,13 @@ export async function updateUserAction(formData: FormData) {
     // Prevent admins locking themselves out.
     return;
   }
-  if (op === "make-admin" || op === "make-viewer") {
-    await db.update(users).set({ role: op === "make-admin" ? "admin" : "viewer", updatedAt: new Date() }).where(eq(users.id, id));
-  } else if (op === "deactivate" || op === "activate") {
-    await db.update(users).set({ isActive: op === "activate", updatedAt: new Date() }).where(eq(users.id, id));
-    if (op === "deactivate") await revokeAllSessions(id);
+  if (op === "make-admin" || op === "activate") {
+    await db.update(users).set(op === "make-admin" ? { role: "admin", updatedAt: new Date() } : { isActive: true, updatedAt: new Date() }).where(eq(users.id, id));
+  } else if (op === "make-viewer" || op === "deactivate") {
+    const done = await keepAnAdmin(id, (tx) =>
+      tx.update(users).set(op === "make-viewer" ? { role: "viewer", updatedAt: new Date() } : { isActive: false, updatedAt: new Date() }).where(eq(users.id, id)).returning({ id: users.id }),
+    );
+    if (done && op === "deactivate") await revokeAllSessions(id);
   }
   await logger.info("admin", "User updated", { by: admin.email, userId: id, op });
   revalidatePath("/admin/users");
@@ -92,7 +117,13 @@ export async function editUserAction(_prev: UserFormState, formData: FormData): 
   if (!u) return { error: "User not found." };
   const [taken] = await db.select({ id: users.id }).from(users).where(and(sql`lower(${users.email}) = ${email}`, ne(users.id, userId))).limit(1);
   if (taken) return { error: "Another user already has this email address." };
-  await db.update(users).set({ name, email, updatedAt: new Date() }).where(eq(users.id, userId));
+  try {
+    await db.update(users).set({ name, email, updatedAt: new Date() }).where(eq(users.id, userId));
+  } catch (err) {
+    // Another save took the address between the check above and this write.
+    if (isUniqueViolation(err)) return { error: "Another user already has this email address." };
+    throw err;
+  }
   await logger.info("admin", "User edited", { by: admin.email, userId, ...(u.email !== email ? { from: u.email, to: email } : {}), ...(u.name !== name ? { name } : {}) });
   revalidatePath("/admin/users");
   revalidatePath("/", "layout"); // the sidebar shows the signed-in user's name and email
@@ -104,7 +135,7 @@ export async function deleteUserAction(formData: FormData) {
   const id = z.coerce.number().int().positive().parse(formData.get("userId"));
   // Admins can't delete themselves, so at least one administrator (the one acting) always remains.
   if (id === admin.id) return;
-  const [u] = await db.delete(users).where(eq(users.id, id)).returning({ email: users.email }); // sessions are removed with the user
+  const u = await keepAnAdmin(id, async (tx) => (await tx.delete(users).where(eq(users.id, id)).returning({ email: users.email }))[0]); // sessions are removed with the user
   if (u) await logger.info("admin", "User deleted", { by: admin.email, userId: id, email: u.email });
   revalidatePath("/admin/users");
 }

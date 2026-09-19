@@ -230,6 +230,8 @@ function scheduleIdleClose() {
   const ms = env().BROWSER_IDLE_TIMEOUT_MS;
   if (ms <= 0) return;
   idleTimer = setTimeout(() => {
+    // A long operation (link checks run minutes on one page) is not idle: closing now would kill it mid-way.
+    if ([...contexts.values()].some((e) => e.inUse > 0)) return scheduleIdleClose();
     void closeBrowser();
   }, ms);
   idleTimer.unref?.();

@@ -63,3 +63,12 @@ test("only consecutive blocked scans, newest first, slow down a site's schedule"
   assert.equal(consecutiveBlocked(["blocked", "blocked", "partially_blocked"]), 2);
   assert.equal(consecutiveBlocked(["blocked", null]), 1);
 });
+
+test("dropped connections are recognised as transient, real query errors are not", async () => {
+  const { isTransientNetworkError } = await import("@/lib/errors");
+  const reset = Object.assign(new Error("Failed query: select 1"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+  assert.equal(isTransientNetworkError(reset), true);
+  assert.equal(isTransientNetworkError(Object.assign(new Error("Failed query"), { cause: new Error("write CONNECT_TIMEOUT undefined:undefined") })), true);
+  assert.equal(isTransientNetworkError(Object.assign(new Error("Failed query"), { cause: new Error('column "x" does not exist') })), false);
+  assert.equal(isTransientNetworkError("boom"), false);
+});

@@ -53,10 +53,17 @@ export async function runMaintenance() {
   result.sessionsDeleted = count(await db.execute(sql`delete from sessions where expires_at < now()`));
   result.rateLimitsDeleted = count(await db.execute(sql`delete from rate_limits where window_start < now() - interval '1 day'`));
   // Abandoned scans (e.g. job deleted) never stay "in progress" forever.
+  // A scan whose job is still queued or running is waiting for a crawler (e.g. the worker's computer is asleep) and
+  // resumes when one is back, so it is only given up on after 2 days. A scan with no live job is abandoned.
   result.stuckScansFailed = count(
     await db.execute(sql`
-      update seo_scans set status = 'failed', error_message = 'The scan did not finish within 6 hours and was stopped.', completed_at = now()
-      where status in ('queued','crawling','finalizing') and created_at < now() - interval '6 hours'
+      update seo_scans s set status = 'failed', completed_at = now(),
+        error_message = case when s.created_at < now() - interval '48 hours'
+          then 'The scan waited more than 2 days for a crawler and was stopped.'
+          else 'The scan did not finish within 6 hours and was stopped.' end
+      where s.status in ('queued','crawling','finalizing') and s.created_at < now() - interval '6 hours'
+        and (s.created_at < now() - interval '48 hours'
+             or not exists (select 1 from jobs j where j.type = 'seo_scan' and j.status in ('queued','running') and (j.payload->>'scanId')::bigint = s.id))
     `),
   );
   await logger.info("maintenance", "Maintenance complete", result);
