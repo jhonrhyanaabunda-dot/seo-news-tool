@@ -16,7 +16,7 @@ export function LoginForm({ next }: { next?: string }) {
         </div>
       )}
       <input type="hidden" name="next" value={next ?? ""} />
-      <div>
+      <div className="auth-rise" style={{ animationDelay: "140ms" }}>
         <label htmlFor="email" className="auth-label">
           Email
         </label>
@@ -33,7 +33,7 @@ export function LoginForm({ next }: { next?: string }) {
           key={state?.email ?? ""}
         />
       </div>
-      <div>
+      <div className="auth-rise" style={{ animationDelay: "210ms" }}>
         <label htmlFor="password" className="auth-label">
           Password
         </label>
@@ -50,7 +50,7 @@ export function LoginForm({ next }: { next?: string }) {
           </button>
         </div>
       </div>
-      <button type="submit" className="btn-primary mt-1 h-11 w-full rounded-lg text-[15px] font-semibold" disabled={pending}>
+      <button type="submit" className="auth-rise btn-primary mt-1 h-11 w-full rounded-lg text-[15px] font-semibold" style={{ animationDelay: "280ms" }} disabled={pending}>
         {pending ? (
           <>
             <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> Signing in…
@@ -59,7 +59,7 @@ export function LoginForm({ next }: { next?: string }) {
           "Sign in"
         )}
       </button>
-      <div className="space-y-2 pt-1 text-center">
+      <div className="auth-rise space-y-2 pt-1 text-center" style={{ animationDelay: "350ms" }}>
         <p className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
           <Lock aria-hidden className="h-3.5 w-3.5" /> Encrypted connection
         </p>

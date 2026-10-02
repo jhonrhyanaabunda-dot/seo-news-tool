@@ -22,11 +22,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <div className="auth-card grid w-full max-w-3xl overflow-hidden rounded-2xl bg-white md:grid-cols-[1fr_1.05fr]">
         <div className="p-7 sm:p-8">
           {/* Phones never see the brand panel below, so the logo is carried here instead. */}
-          <div className="mb-6 inline-flex rounded-xl bg-white p-2.5 shadow-sm ring-1 ring-slate-200 md:hidden">
+          <div className="auth-rise mb-6 inline-flex rounded-xl bg-white p-2.5 shadow-sm ring-1 ring-slate-200 md:hidden">
             <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-9 w-auto" />
           </div>
-          <h2 className="text-xl font-semibold text-slate-900">Sign in</h2>
-          <p className="mt-1.5 text-sm text-slate-500">Enter your email and password to continue.</p>
+          <h2 className="auth-rise text-xl font-semibold text-slate-900">Sign in</h2>
+          <p className="auth-rise mt-1.5 text-sm text-slate-500" style={{ animationDelay: "70ms" }}>
+            Enter your email and password to continue.
+          </p>
           <div className="mt-6">
             <LoginForm next={next} />
           </div>
@@ -34,15 +36,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
         <aside className="auth-panel hidden flex-col gap-6 p-8 text-white md:flex">
           <div>
-            <div className="inline-flex rounded-xl bg-white p-3 shadow-lg">
+            <div className="auth-rise inline-flex rounded-xl bg-white p-3 shadow-lg" style={{ animationDelay: "160ms" }}>
               <Image src="/a3brands-logo.png" alt="" width={1388} height={879} className="h-9 w-auto" />
             </div>
-            <h1 className="mt-5 text-[22px] font-semibold leading-tight">Your SEO monitoring portal</h1>
+            <h1 className="auth-rise mt-5 text-[22px] font-semibold leading-tight" style={{ animationDelay: "230ms" }}>Your SEO monitoring portal</h1>
           </div>
 
           <ul className="flex-1 space-y-4">
-            {PROOF.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex gap-3.5">
+            {PROOF.map(({ icon: Icon, title, body }, i) => (
+              <li key={title} className="auth-rise flex gap-3.5" style={{ animationDelay: `${300 + i * 90}ms` }}>
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-inset ring-white/15">
                   <Icon aria-hidden className="h-4 w-4 text-blue-200" />
                 </span>
@@ -54,7 +56,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             ))}
           </ul>
 
-          <p className="text-xs text-blue-200/60">SEO and news monitoring by A3 Brands</p>
+          <p className="auth-rise text-xs text-blue-200/60" style={{ animationDelay: "570ms" }}>
+            SEO and news monitoring by A3 Brands
+          </p>
         </aside>
       </div>
     </div>
