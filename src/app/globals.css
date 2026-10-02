@@ -76,51 +76,51 @@ body {
 }
 
 /* ───────────────────────── Sign-in page ─────────────────────────
-   A light, airy stage: soft colour washes, a faint dot grid and a
-   horizon glow behind the card. Static CSS only, nothing downloaded. */
+   A quiet studio backdrop: one neutral canvas, a single overhead light
+   above the card, hairline rules and a restrained vignette. No colour
+   washes, no dots, nothing downloaded. */
 .auth-bg {
   position: relative;
   isolation: isolate;
-  background-color: #eef2f8;
+  background-color: #0b1220;
   background-image:
-    radial-gradient(44rem 30rem at 8% 0%, rgba(37, 99, 235, 0.16), transparent 68%),
-    radial-gradient(38rem 26rem at 96% 8%, rgba(45, 212, 191, 0.14), transparent 70%),
-    radial-gradient(46rem 34rem at 70% 108%, rgba(79, 70, 229, 0.16), transparent 72%),
-    linear-gradient(175deg, #f6f8fc 0%, #e9eef6 55%, #dde5f0 100%);
+    radial-gradient(58rem 32rem at 50% -10%, rgba(96, 165, 250, 0.2) 0%, rgba(96, 165, 250, 0) 60%),
+    linear-gradient(180deg, #111a2c 0%, #0b1220 52%, #070c16 100%);
 }
 
-/* Dot grid: the measurement texture, light enough to read as paper. */
+/* Hairline rules: structure a designer would notice and a user would not. */
 .auth-bg::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: radial-gradient(circle, rgba(15, 39, 71, 0.14) 1px, transparent 1px);
-  background-size: 26px 26px;
-  mask-image: radial-gradient(80% 70% at 50% 45%, #000 20%, transparent 95%);
+  background-image:
+    linear-gradient(to right, rgba(148, 197, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 197, 255, 0.07) 1px, transparent 1px);
+  background-size: 112px 112px;
+  mask-image: radial-gradient(68% 58% at 50% 46%, #000 25%, transparent 92%);
 }
 
-/* A soft glow directly under the card, so it sits on the page instead of floating. */
+/* Vignette plus fine grain, so the canvas has depth without colour. */
 .auth-bg::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   background-image:
-    radial-gradient(38rem 20rem at 50% 52%, rgba(255, 255, 255, 0.9), transparent 72%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.14'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.14'/%3E%3C/svg%3E");
+    radial-gradient(110% 90% at 50% 42%, transparent 46%, rgba(2, 6, 14, 0.66) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
   background-size: 100% 100%, 180px 180px;
 }
 
-/* The card: one object, two halves, lifted off a light page. */
+/* The card: one object, two halves, lifted off the canvas. */
 .auth-card {
   box-shadow:
-    0 32px 64px -20px rgba(15, 39, 71, 0.32),
-    0 8px 20px -12px rgba(15, 39, 71, 0.2),
-    0 0 0 1px rgba(15, 39, 71, 0.07);
+    0 36px 72px -22px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
-/* Brand half, now on the right. The sheen runs toward the form. */
+/* Brand half, on the right. The sheen runs toward the form. */
 .auth-panel {
   background-color: #0f2747;
   background-image:
