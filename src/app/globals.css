@@ -76,54 +76,57 @@ body {
 }
 
 /* ───────────────────────── Sign-in page ─────────────────────────
-   A dark, lightly textured stage for one split card: brand panel on the
-   left, form on the right. Static CSS only: no images, no animation. */
+   A light, airy stage: soft colour washes, a faint dot grid and a
+   horizon glow behind the card. Static CSS only, nothing downloaded. */
 .auth-bg {
   position: relative;
   isolation: isolate;
-  background-color: #060b14;
+  background-color: #eef2f8;
   background-image:
-    radial-gradient(46rem 30rem at 18% -5%, rgba(30, 64, 175, 0.38), transparent 70%),
-    radial-gradient(38rem 26rem at 88% 108%, rgba(29, 78, 216, 0.3), transparent 72%),
-    linear-gradient(160deg, #0a1628 0%, #060d1a 55%, #04080f 100%);
+    radial-gradient(44rem 30rem at 8% 0%, rgba(37, 99, 235, 0.16), transparent 68%),
+    radial-gradient(38rem 26rem at 96% 8%, rgba(45, 212, 191, 0.14), transparent 70%),
+    radial-gradient(46rem 34rem at 70% 108%, rgba(79, 70, 229, 0.16), transparent 72%),
+    linear-gradient(175deg, #f6f8fc 0%, #e9eef6 55%, #dde5f0 100%);
 }
 
-/* Fine diagonal weave, strongest in the middle, so the backdrop has a material. */
+/* Dot grid: the measurement texture, light enough to read as paper. */
 .auth-bg::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: repeating-linear-gradient(135deg, rgba(148, 197, 255, 0.055) 0 1px, transparent 1px 11px);
-  mask-image: radial-gradient(75% 65% at 50% 50%, #000 30%, transparent 100%);
+  background-image: radial-gradient(circle, rgba(15, 39, 71, 0.14) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(80% 70% at 50% 45%, #000 20%, transparent 95%);
 }
 
-/* Grain over the vignette: large dark gradients band on wide screens. */
+/* A soft glow directly under the card, so it sits on the page instead of floating. */
 .auth-bg::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.26'/%3E%3C/svg%3E"),
-    radial-gradient(120% 100% at 50% 45%, transparent 38%, rgba(2, 6, 14, 0.72) 100%);
-  background-size: 180px 180px, 100% 100%;
+    radial-gradient(38rem 20rem at 50% 52%, rgba(255, 255, 255, 0.9), transparent 72%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.14'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.14'/%3E%3C/svg%3E");
+  background-size: 100% 100%, 180px 180px;
 }
 
-/* The card: one object, two halves, lifted off the backdrop. */
+/* The card: one object, two halves, lifted off a light page. */
 .auth-card {
   box-shadow:
-    0 40px 80px -24px rgba(0, 0, 0, 0.75),
-    0 0 0 1px rgba(255, 255, 255, 0.07);
+    0 32px 64px -20px rgba(15, 39, 71, 0.32),
+    0 8px 20px -12px rgba(15, 39, 71, 0.2),
+    0 0 0 1px rgba(15, 39, 71, 0.07);
 }
 
-/* Brand half. The diagonal sheen matches the backdrop's weave direction. */
+/* Brand half, now on the right. The sheen runs toward the form. */
 .auth-panel {
   background-color: #0f2747;
   background-image:
-    linear-gradient(135deg, rgba(96, 165, 250, 0.16) 0%, transparent 42%),
-    radial-gradient(28rem 20rem at 115% 115%, rgba(37, 99, 235, 0.5), transparent 70%),
-    linear-gradient(155deg, #12325b 0%, #0f2747 48%, #0a1d36 100%);
+    linear-gradient(225deg, rgba(96, 165, 250, 0.18) 0%, transparent 44%),
+    radial-gradient(26rem 20rem at -10% 112%, rgba(37, 99, 235, 0.5), transparent 70%),
+    linear-gradient(200deg, #12325b 0%, #0f2747 48%, #0a1d36 100%);
 }
 
 /* Form fields on the sign-in card: filled by default, white on focus. */
