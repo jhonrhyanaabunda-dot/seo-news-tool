@@ -63,3 +63,61 @@ body {
     @apply border-t border-slate-100;
   }
 }
+
+/* ───────────────────────── Sign-in backdrop ─────────────────────────
+   Layered, static (no animation, no images to download): a deep brand
+   gradient, two soft light sources, a faint data grid that fades out at
+   the edges, and a vignette that pushes focus to the card. */
+.auth-bg {
+  position: relative;
+  isolation: isolate;
+  background-color: #0b1e3a;
+  background-image:
+    radial-gradient(42rem 28rem at 12% 2%, rgba(37, 99, 235, 0.42), transparent 68%),
+    radial-gradient(34rem 24rem at 92% 12%, rgba(56, 189, 248, 0.2), transparent 66%),
+    radial-gradient(40rem 32rem at 72% 104%, rgba(30, 64, 175, 0.44), transparent 70%),
+    linear-gradient(168deg, #0d2446 0%, #0f2747 42%, #081729 100%);
+}
+
+/* The grid reads as "measurement" without competing with the card. */
+.auth-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, rgba(148, 197, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 197, 255, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 45%, #000 35%, transparent 100%);
+}
+
+/* Vignette plus a fine grain: large dark gradients band on wide screens, grain hides it.
+   The grain is an inline SVG, so nothing is downloaded. */
+.auth-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    radial-gradient(60% 1px at 50% 46%, rgba(191, 219, 254, 0.5), transparent 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E"),
+    radial-gradient(130% 110% at 50% 38%, transparent 42%, rgba(2, 8, 20, 0.62) 100%);
+  background-size: 100% 100%, 180px 180px, 100% 100%;
+  opacity: 0.96;
+}
+
+/* A thin highlight along the top edge of the card, like light catching paper. */
+.auth-card {
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.7) inset,
+    0 24px 48px -12px rgba(2, 8, 23, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.auth-mark {
+  background-image: linear-gradient(145deg, rgba(96, 165, 250, 0.95), rgba(29, 78, 216, 0.95));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+    0 10px 24px -10px rgba(37, 99, 235, 0.9);
+}

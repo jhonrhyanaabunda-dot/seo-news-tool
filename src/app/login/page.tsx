@@ -9,16 +9,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   if (await getCurrentUser()) redirect("/");
   const { next } = await searchParams;
   return (
-    <div className="flex min-h-screen items-center justify-center bg-brand-900 px-4">
+    <div className="auth-bg flex min-h-screen flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 text-center text-white">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-300">A3 Brands</div>
-          <h1 className="mt-1 text-2xl font-semibold">SEO &amp; News Monitor</h1>
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="auth-mark flex h-12 w-12 items-center justify-center rounded-xl text-base font-bold tracking-tight text-white">A3</div>
+          <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300/90">A3 Brands</div>
+          <h1 className="mt-1.5 text-[26px] font-semibold leading-tight text-white">SEO &amp; News Monitor</h1>
+          <p className="mt-2 max-w-xs text-sm leading-relaxed text-blue-100/70">Dealership website health, tracked daily.</p>
         </div>
-        <div className="rounded-lg bg-white p-6 shadow-xl">
+        <div className="auth-card rounded-2xl bg-white p-7">
           <LoginForm next={next} />
         </div>
-        <p className="mt-4 text-center text-xs text-blue-200/80">Accounts are created by an administrator.</p>
+        <p className="mt-5 text-center text-xs text-blue-200/60">Accounts are created by an administrator.</p>
       </div>
     </div>
   );
