@@ -75,60 +75,71 @@ body {
   }
 }
 
-/* ───────────────────────── Sign-in backdrop ─────────────────────────
-   Layered, static (no animation, no images to download): a deep brand
-   gradient, two soft light sources, a faint data grid that fades out at
-   the edges, and a vignette that pushes focus to the card. */
+/* ───────────────────────── Sign-in page ─────────────────────────
+   A dark, lightly textured stage for one split card: brand panel on the
+   left, form on the right. Static CSS only: no images, no animation. */
 .auth-bg {
   position: relative;
   isolation: isolate;
-  background-color: #0b1e3a;
+  background-color: #060b14;
   background-image:
-    radial-gradient(42rem 28rem at 12% 2%, rgba(37, 99, 235, 0.42), transparent 68%),
-    radial-gradient(34rem 24rem at 92% 12%, rgba(56, 189, 248, 0.2), transparent 66%),
-    radial-gradient(40rem 32rem at 72% 104%, rgba(30, 64, 175, 0.44), transparent 70%),
-    linear-gradient(168deg, #0d2446 0%, #0f2747 42%, #081729 100%);
+    radial-gradient(46rem 30rem at 18% -5%, rgba(30, 64, 175, 0.38), transparent 70%),
+    radial-gradient(38rem 26rem at 88% 108%, rgba(29, 78, 216, 0.3), transparent 72%),
+    linear-gradient(160deg, #0a1628 0%, #060d1a 55%, #04080f 100%);
 }
 
-/* The grid reads as "measurement" without competing with the card. */
+/* Fine diagonal weave, strongest in the middle, so the backdrop has a material. */
 .auth-bg::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image:
-    linear-gradient(to right, rgba(148, 197, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 197, 255, 0.07) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(70% 60% at 50% 45%, #000 35%, transparent 100%);
+  background-image: repeating-linear-gradient(135deg, rgba(148, 197, 255, 0.055) 0 1px, transparent 1px 11px);
+  mask-image: radial-gradient(75% 65% at 50% 50%, #000 30%, transparent 100%);
 }
 
-/* Vignette plus a fine grain: large dark gradients band on wide screens, grain hides it.
-   The grain is an inline SVG, so nothing is downloaded. */
+/* Grain over the vignette: large dark gradients band on wide screens. */
 .auth-bg::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   background-image:
-    radial-gradient(55% 1px at 50% 31%, rgba(191, 219, 254, 0.45), transparent 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E"),
-    radial-gradient(130% 110% at 50% 38%, transparent 42%, rgba(2, 8, 20, 0.62) 100%);
-  background-size: 100% 100%, 180px 180px, 100% 100%;
-  opacity: 0.96;
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.26'/%3E%3C/svg%3E"),
+    radial-gradient(120% 100% at 50% 45%, transparent 38%, rgba(2, 6, 14, 0.72) 100%);
+  background-size: 180px 180px, 100% 100%;
 }
 
-/* A thin highlight along the top edge of the card, like light catching paper. */
+/* The card: one object, two halves, lifted off the backdrop. */
 .auth-card {
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.7) inset,
-    0 24px 48px -12px rgba(2, 8, 23, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
+    0 40px 80px -24px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
-.auth-mark {
-  background-image: linear-gradient(145deg, rgba(96, 165, 250, 0.95), rgba(29, 78, 216, 0.95));
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
-    0 10px 24px -10px rgba(37, 99, 235, 0.9);
+/* Brand half. The diagonal sheen matches the backdrop's weave direction. */
+.auth-panel {
+  background-color: #0f2747;
+  background-image:
+    linear-gradient(135deg, rgba(96, 165, 250, 0.16) 0%, transparent 42%),
+    radial-gradient(28rem 20rem at 115% 115%, rgba(37, 99, 235, 0.5), transparent 70%),
+    linear-gradient(155deg, #12325b 0%, #0f2747 48%, #0a1d36 100%);
+}
+
+/* Form fields on the sign-in card: filled by default, white on focus. */
+@layer components {
+  .auth-label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500;
+  }
+  .auth-input {
+    @apply block h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 text-[15px] text-slate-900 transition placeholder:text-slate-400 focus:border-brand-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100;
+  }
+  /* Chrome paints autofilled fields pale blue; keep the card's own styling. */
+  .auth-input:-webkit-autofill,
+  .auth-input:-webkit-autofill:hover,
+  .auth-input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-slate-900);
+    -webkit-box-shadow: 0 0 0 1000px var(--color-slate-50) inset;
+    caret-color: var(--color-slate-900);
+  }
 }

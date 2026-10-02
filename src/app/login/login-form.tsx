@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { AlertCircle, Eye, EyeOff, Loader2, Lock } from "lucide-react";
+import { AlertCircle, Loader2, Lock } from "lucide-react";
 import { loginAction, type LoginState } from "@/lib/auth/actions";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -17,8 +17,8 @@ export function LoginForm({ next }: { next?: string }) {
       )}
       <input type="hidden" name="next" value={next ?? ""} />
       <div>
-        <label htmlFor="email" className="label">
-          Email address
+        <label htmlFor="email" className="auth-label">
+          Email
         </label>
         <input
           id="email"
@@ -28,29 +28,29 @@ export function LoginForm({ next }: { next?: string }) {
           required
           autoFocus
           placeholder="you@a3brands.com"
-          className="input input-lg"
+          className="auth-input"
           defaultValue={state?.email ?? ""}
           key={state?.email ?? ""}
         />
       </div>
       <div>
-        <label htmlFor="password" className="label">
+        <label htmlFor="password" className="auth-label">
           Password
         </label>
         <div className="relative">
-          <input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required className="input input-lg pr-11" />
+          <input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required className="auth-input pr-20" />
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? "Hide password" : "Show password"}
             aria-pressed={showPassword}
-            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-slate-400 transition hover:text-slate-700"
+            className="absolute inset-y-0 right-0 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800"
           >
-            {showPassword ? <EyeOff aria-hidden className="h-4 w-4" /> : <Eye aria-hidden className="h-4 w-4" />}
+            {showPassword ? "Hide" : "Show"}
+            <span className="sr-only"> password</span>
           </button>
         </div>
       </div>
-      <button type="submit" className="btn-primary h-11 w-full rounded-lg text-[15px] font-semibold shadow-sm" disabled={pending}>
+      <button type="submit" className="btn-primary h-12 w-full rounded-lg text-[15px] font-semibold" disabled={pending}>
         {pending ? (
           <>
             <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> Signing in…
@@ -59,9 +59,12 @@ export function LoginForm({ next }: { next?: string }) {
           "Sign in"
         )}
       </button>
-      <p className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
-        <Lock aria-hidden className="h-3.5 w-3.5" /> Encrypted connection
-      </p>
+      <div className="space-y-2 pt-1 text-center">
+        <p className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
+          <Lock aria-hidden className="h-3.5 w-3.5" /> Encrypted connection
+        </p>
+        <p className="text-xs text-slate-500">Need an account or a password reset? Ask your A3 Brands administrator.</p>
+      </div>
     </form>
   );
 }
