@@ -20,23 +20,23 @@ const HIGHLIGHTS = [
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-screen overflow-hidden lg:grid-cols-[1.1fr_1fr]">
-      <aside className="auth-hero auth-hero-enter relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14">
+      <aside className="auth-hero auth-hero-enter relative hidden flex-col justify-center gap-9 overflow-hidden p-10 text-white lg:flex xl:p-14">
         {heroExists && <Image src={HERO} alt="" fill priority sizes="55vw" className="object-cover" />}
         <div className="auth-hero-veil absolute inset-0" />
 
-        <div className="relative mt-auto max-w-md">
-          <h1 className="auth-rise text-[40px] font-bold leading-[1.1] tracking-tight" style={{ animationDelay: "120ms" }}>
+        <div className="relative max-w-md">
+          <h1 className="auth-rise text-[40px] font-bold leading-[1.1] tracking-tight" style={{ animationDelay: "420ms" }}>
             Smarter monitoring.
             <span className="mt-1 block text-blue-300">Better websites.</span>
           </h1>
-          <p className="auth-rise mt-5 text-[17px] leading-relaxed text-blue-50/85" style={{ animationDelay: "200ms" }}>
+          <p className="auth-rise mt-5 text-[17px] leading-relaxed text-blue-50/85" style={{ animationDelay: "520ms" }}>
             Your dealership SEO and news workspace, watching every site so nothing slips.
           </p>
         </div>
 
-        <ul className="relative flex flex-wrap items-center gap-x-10 gap-y-5 border-t border-white/15 pt-6">
+        <ul className="relative flex max-w-xl flex-wrap items-center gap-x-10 gap-y-5 border-t border-white/15 pt-7">
           {HIGHLIGHTS.map(({ icon: Icon, title, body }, i) => (
-            <li key={title} className="auth-rise flex items-center gap-3" style={{ animationDelay: `${300 + i * 90}ms` }}>
+            <li key={title} className="auth-rise flex items-center gap-3" style={{ animationDelay: `${620 + i * 110}ms` }}>
               <Icon aria-hidden className="h-5 w-5 shrink-0 text-blue-300" />
               <span>
                 <span className="block text-sm font-semibold leading-tight">{title}</span>
