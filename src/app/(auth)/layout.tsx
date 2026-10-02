@@ -19,18 +19,12 @@ const HIGHLIGHTS = [
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
-      <aside className="auth-hero relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14">
+    <div className="grid min-h-screen overflow-hidden lg:grid-cols-[1.1fr_1fr]">
+      <aside className="auth-hero auth-hero-enter relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14">
         {heroExists && <Image src={HERO} alt="" fill priority sizes="55vw" className="object-cover" />}
         <div className="auth-hero-veil absolute inset-0" />
 
-        <div className="relative">
-          <div className="auth-rise inline-flex rounded-xl bg-white p-3 shadow-lg">
-            <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-10 w-auto" />
-          </div>
-        </div>
-
-        <div className="relative max-w-md">
+        <div className="relative mt-auto max-w-md">
           <h1 className="auth-rise text-[40px] font-bold leading-[1.1] tracking-tight" style={{ animationDelay: "120ms" }}>
             Smarter monitoring.
             <span className="mt-1 block text-blue-300">Better websites.</span>
@@ -55,7 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <main className="auth-canvas flex items-center justify-center p-5 sm:p-8">
         <div className="auth-card w-full max-w-md rounded-2xl bg-white p-7 sm:p-9">
-          <div className="auth-rise mb-7 flex justify-center lg:hidden">
+          <div className="auth-rise mb-6 flex justify-center">
             <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-10 w-auto" />
           </div>
           {children}
