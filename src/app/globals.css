@@ -41,6 +41,17 @@ body {
   .input {
     @apply block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100;
   }
+  .input-lg {
+    @apply h-11 rounded-lg px-3.5 text-[15px];
+  }
+  /* Chrome paints autofilled fields pale blue; keep the card's own styling. */
+  .input:-webkit-autofill,
+  .input:-webkit-autofill:hover,
+  .input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-slate-900);
+    -webkit-box-shadow: 0 0 0 1000px #fff inset;
+    caret-color: var(--color-slate-900);
+  }
   .label {
     @apply mb-1 block text-sm font-medium text-slate-700;
   }
@@ -100,7 +111,7 @@ body {
   inset: 0;
   z-index: -1;
   background-image:
-    radial-gradient(60% 1px at 50% 46%, rgba(191, 219, 254, 0.5), transparent 100%),
+    radial-gradient(55% 1px at 50% 31%, rgba(191, 219, 254, 0.45), transparent 100%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E"),
     radial-gradient(130% 110% at 50% 38%, transparent 42%, rgba(2, 8, 20, 0.62) 100%);
   background-size: 100% 100%, 180px 180px, 100% 100%;
