@@ -301,6 +301,27 @@ export function renderCrawlerStatusEmail(input: {
   return { subject: `${offline ? "⚠ " : ""}${title}`, html: layout(title, lines[0].slice(0, 120), body, input.dashboardUrl), text };
 }
 
+/** One-time password reset link. No account details beyond the first name, in case the inbox is shared. */
+export function renderPasswordResetEmail(input: { name: string; resetUrl: string; expiresAt: Date; dashboardUrl: string; timeZone?: string }) {
+  const when = new Intl.DateTimeFormat("en-US", { timeZone: input.timeZone ?? "UTC", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(input.expiresAt);
+  const title = "Reset your password";
+  const lines = [
+    `Hello ${input.name.split(" ")[0]},`,
+    "Someone asked to reset the password for your A3 SEO & News Monitor account. Use the button below to choose a new one.",
+    `The link works once and expires at ${when}.`,
+    "If this wasn't you, ignore this email: your password stays as it is.",
+  ];
+  const body = `
+  <h2 style="font-size:18px;margin:0 0 12px;color:${C.brand};">${escapeHtml(title)}</h2>
+  ${lines.map((l) => `<p style="font-size:14px;line-height:1.6;margin:0 0 10px;">${escapeHtml(l)}</p>`).join("")}
+  <div style="margin:18px 0 6px;">
+    <a href="${escapeHtml(input.resetUrl)}" style="display:inline-block;background:${C.accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:8px;">Choose a new password</a>
+  </div>
+  <p style="font-size:12px;color:${C.muted};line-height:1.6;margin:12px 0 0;">If the button does not work, copy this address into your browser:<br>${escapeHtml(input.resetUrl)}</p>`;
+  const text = [title, "", ...lines, "", input.resetUrl].join("\n");
+  return { subject: title, html: layout(title, lines[1].slice(0, 120), body, input.dashboardUrl), text };
+}
+
 export function renderTestEmail(dashboardUrl: string) {
   const body = `<p style="font-size:14px;line-height:1.6;margin:0;">This is a test message from the A3 SEO &amp; News Monitor. If you can read this, email delivery is configured correctly.</p>`;
   return {

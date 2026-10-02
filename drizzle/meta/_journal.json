@@ -92,6 +92,13 @@
       "when": 1789486970721,
       "tag": "0012_seo_feed_polling",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790921926335,
+      "tag": "0013_password_resets",
+      "breakpoints": true
     }
   ]
 }

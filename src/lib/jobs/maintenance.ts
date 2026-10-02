@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { logger } from "@/lib/logger";
 import { pruneSeoArticles } from "@/lib/news/seo-industry";
+import { pruneExpiredPasswordResets } from "@/lib/auth/password-reset";
 
 /** Scans per dealership whose page/issue detail rows are kept. Older scans keep their summary, score and fingerprints. */
 export const DETAIL_SCANS_KEPT = 10;
@@ -50,6 +51,7 @@ export async function runMaintenance() {
   result.logsDeleted = count(await db.execute(sql`delete from system_logs where created_at < now() - interval '90 days'`));
   // Crawler processes that stopped (restarts, redeploys) leave rows behind; a live crawler reports every few minutes.
   result.staleCrawlersDeleted = count(await db.execute(sql`delete from crawler_workers where last_seen_at < now() - make_interval(hours => ${STALE_CRAWLER_HOURS}::int)`));
+  result.passwordResetsDeleted = await pruneExpiredPasswordResets();
   result.sessionsDeleted = count(await db.execute(sql`delete from sessions where expires_at < now()`));
   result.rateLimitsDeleted = count(await db.execute(sql`delete from rate_limits where window_start < now() - interval '1 day'`));
   // Abandoned scans (e.g. job deleted) never stay "in progress" forever.

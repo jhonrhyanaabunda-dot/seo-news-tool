@@ -27,7 +27,7 @@ export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_r
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
 export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news"]);
-export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report"]);
+export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
   "site_unavailable",
@@ -59,6 +59,26 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_email_idx").on(sql`lower(${t.email})`)],
+);
+
+/**
+ * One-time links for "forgot password". Only the hash of the token is stored,
+ * so the table is useless to anyone who reads it; links expire and are single use.
+ */
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 128 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    requestedIp: varchar("requested_ip", { length: 64 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("password_resets_token_idx").on(t.tokenHash), index("password_resets_user_idx").on(t.userId)],
 );
 
 export const sessions = pgTable(
@@ -812,6 +832,7 @@ export const siteCache = pgTable(
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
+export type PasswordReset = typeof passwordResets.$inferSelect;
 export type Dealership = typeof dealerships.$inferSelect;
 export type NewDealership = typeof dealerships.$inferInsert;
 export type NewsKeyword = typeof newsKeywords.$inferSelect;

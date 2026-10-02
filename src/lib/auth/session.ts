@@ -8,7 +8,8 @@ import { sessions, users, type User } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 
 export const SESSION_COOKIE = "a3_session";
-const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days, when "Remember me" is ticked
+const SHORT_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours on a shared or public computer
 const REFRESH_AFTER_MS = 60 * 60 * 1000; // touch last_seen at most hourly
 
 /**
@@ -20,9 +21,15 @@ function hashToken(token: string) {
   return createHash("sha256").update(token + env().AUTH_SECRET).digest("hex");
 }
 
-export async function createSession(userId: number, meta: { userAgent?: string | null; ip?: string | null }) {
+/**
+ * `remember` is the sign-in page's "Remember me": with it the session lasts 14 days
+ * and survives a browser restart; without it the cookie dies with the browser and
+ * the session is dropped after 12 hours anyway.
+ */
+export async function createSession(userId: number, meta: { userAgent?: string | null; ip?: string | null; remember?: boolean }) {
+  const remember = meta.remember ?? true;
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const expiresAt = new Date(Date.now() + (remember ? SESSION_TTL_MS : SHORT_SESSION_TTL_MS));
   await db.insert(sessions).values({
     userId,
     tokenHash: hashToken(token),
@@ -36,7 +43,8 @@ export async function createSession(userId: number, meta: { userAgent?: string |
     sameSite: "lax",
     secure: env().NODE_ENV === "production",
     path: "/",
-    expires: expiresAt,
+    // No `expires` without "Remember me": the cookie is dropped when the browser closes.
+    ...(remember ? { expires: expiresAt } : {}),
   });
 }
 

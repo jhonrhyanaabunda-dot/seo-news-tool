@@ -53,7 +53,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     return { error: "Incorrect email or password.", email: typedEmail };
   }
 
-  await createSession(user.id, { userAgent: h.get("user-agent"), ip });
+  await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember: formData.get("remember") === "on" });
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
   const next = parsed.data.next && parsed.data.next.startsWith("/") && !parsed.data.next.startsWith("//") ? parsed.data.next : "/";

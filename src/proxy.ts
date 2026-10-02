@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE = "a3_session";
 // API routes listed here authenticate with their own bearer secrets instead of a session cookie.
-const PUBLIC_PATHS = ["/login", "/bot", "/api/health", "/api/cron", "/api/crawl-jobs"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/bot", "/api/health", "/api/cron", "/api/crawl-jobs"];
 
 /**
  * Edge gate: redirects unauthenticated browser requests to /login and adds
