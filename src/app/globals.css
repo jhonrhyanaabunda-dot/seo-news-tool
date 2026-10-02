@@ -135,7 +135,7 @@ body {
     @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500;
   }
   .auth-input {
-    @apply block h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 text-[15px] text-slate-900 transition placeholder:text-slate-400 focus:border-brand-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100;
+    @apply block h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 text-[15px] text-slate-900 transition placeholder:text-slate-400 focus:border-brand-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100;
   }
   /* Chrome paints autofilled fields pale blue; keep the card's own styling. */
   .auth-input:-webkit-autofill,

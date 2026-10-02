@@ -8,7 +8,7 @@ export function LoginForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(loginAction, undefined);
   const [showPassword, setShowPassword] = useState(false);
   return (
-    <form action={action} className="space-y-5" noValidate>
+    <form action={action} className="space-y-4" noValidate>
       {state?.error && (
         <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-800 ring-1 ring-inset ring-red-200">
           <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
@@ -50,7 +50,7 @@ export function LoginForm({ next }: { next?: string }) {
           </button>
         </div>
       </div>
-      <button type="submit" className="btn-primary h-12 w-full rounded-lg text-[15px] font-semibold" disabled={pending}>
+      <button type="submit" className="btn-primary mt-1 h-11 w-full rounded-lg text-[15px] font-semibold" disabled={pending}>
         {pending ? (
           <>
             <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> Signing in…
