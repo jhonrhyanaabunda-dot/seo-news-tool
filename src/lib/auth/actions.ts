@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -55,6 +55,9 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
 
   await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember: formData.get("remember") === "on" });
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+
+  // Read once by the app layout to play the sign-in intro; short-lived and not secret.
+  (await cookies()).set("a3_intro", "1", { httpOnly: false, sameSite: "lax", path: "/", maxAge: 60 });
 
   const next = parsed.data.next && parsed.data.next.startsWith("/") && !parsed.data.next.startsWith("//") ? parsed.data.next : "/";
   redirect(next);

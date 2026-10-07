@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
 import { logoutAction } from "@/lib/auth/actions";
 import { NavLinks } from "@/components/client/nav-links";
+import { SignInIntro } from "@/components/client/sign-in-intro";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const justSignedIn = (await cookies()).get("a3_intro")?.value === "1";
   const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" }> = [
     { href: "/", label: "Dashboard", icon: "dashboard" },
     { href: "/news", label: "News", icon: "news" },
@@ -20,7 +23,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
   return (
-    <div className="md:flex">
+    <div className={`md:flex ${justSignedIn ? "app-rise" : ""}`}>
+      {justSignedIn && <SignInIntro name={user.name} />}
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2">
         Skip to content
       </a>
