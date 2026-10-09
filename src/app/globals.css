@@ -256,3 +256,107 @@ body {
     animation: app-rise-in 600ms cubic-bezier(0.16, 1, 0.3, 1) 1040ms both;
   }
 }
+
+/* ───────────────────────── Printed SEO report ─────────────────────────
+   One stylesheet for the document at /report/[id]. It has to read as a
+   professional document in a browser and survive being printed, so the
+   layout is plain blocks with explicit page-break rules rather than the
+   app's card grid. Colour is decorative only: every priority also carries
+   its word, so a black-and-white print loses nothing.                      */
+
+.print-doc {
+  --doc-ink: #14171c;
+  --doc-muted: #596273;
+  --doc-rule: #d8dce3;
+  --doc-accent: #1d4ed8;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 3rem;
+  color: var(--doc-ink);
+  font-size: 10.5pt;
+  line-height: 1.55;
+  background: #fff;
+}
+
+.doc-cover { border-bottom: 2px solid var(--doc-ink); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+.doc-brand { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.75rem; }
+.doc-logo { height: 1.9rem; width: auto; }
+.doc-brand-name { font-size: 9pt; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--doc-muted); }
+.doc-title { font-size: 25pt; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+.doc-dealer { font-size: 15pt; font-weight: 600; margin: 0.6rem 0 0; }
+.doc-site { font-size: 10.5pt; color: var(--doc-accent); margin: 0.15rem 0 0; word-break: break-all; }
+.doc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.9rem 1.5rem; margin: 1.5rem 0 0; }
+.doc-meta dt { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doc-muted); }
+.doc-meta dd { margin: 0.15rem 0 0; font-weight: 500; }
+
+.doc-section { margin-bottom: 2rem; }
+.doc-section > h2 { font-size: 13pt; font-weight: 700; margin: 0 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--doc-rule); }
+.doc-body { margin: 0 0 0.7rem; max-width: 42rem; }
+.doc-note { font-size: 9.5pt; color: var(--doc-muted); margin: 0.5rem 0 0; max-width: 42rem; }
+
+.doc-kpis {
+  display: grid;
+  /* Exactly three across so six tiles fill two rows. auto-fit left a wide grey
+     gap beside the last tile, which reads as a layout fault on paper. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--doc-rule);
+  border: 1px solid var(--doc-rule);
+  margin-bottom: 1.25rem;
+}
+@media (max-width: 30rem) {
+  .doc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.doc-kpi { background: #fff; padding: 0.7rem 0.8rem; min-width: 0; }
+.doc-kpi-label { display: block; font-size: 8pt; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--doc-muted); }
+.doc-kpi-value { display: block; font-size: 20pt; font-weight: 700; line-height: 1.1; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
+.doc-kpi-sub { display: block; font-size: 8.5pt; color: var(--doc-muted); }
+
+.doc-chart { max-width: 100%; overflow: hidden; }
+.doc-chart svg { max-width: 100%; height: auto; }
+
+.doc-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+.doc-table th, .doc-table td { text-align: left; padding: 0.42rem 0.6rem 0.42rem 0; border-bottom: 1px solid var(--doc-rule); vertical-align: top; }
+.doc-table thead th { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--doc-muted); }
+.doc-table tbody th { font-weight: 500; }
+.doc-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 4rem; }
+.doc-pct { text-align: right; color: var(--doc-muted); white-space: nowrap; width: 4rem; }
+.doc-total th, .doc-total td { font-weight: 700; border-bottom: none; border-top: 2px solid var(--doc-ink); }
+
+.doc-opps { list-style: none; margin: 1rem 0 0; padding: 0; }
+.doc-opp { border: 1px solid var(--doc-rule); border-radius: 3px; padding: 0.85rem 1rem; margin-bottom: 0.75rem; }
+.doc-opp-head { display: flex; align-items: baseline; gap: 0.6rem; }
+.doc-opp-n { flex: none; font-size: 9pt; font-weight: 700; color: #fff; background: var(--doc-ink); border-radius: 999px; width: 1.3rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; }
+.doc-opp-title { font-size: 11.5pt; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.doc-opp-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem; margin: 0.5rem 0 0.6rem 1.9rem; }
+.doc-opp-meta dt { font-size: 8pt; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--doc-muted); }
+.doc-opp-meta dd { margin: 0.1rem 0 0; font-size: 9.5pt; }
+.doc-opp-line { margin: 0 0 0.4rem 1.9rem; font-size: 10pt; overflow-wrap: anywhere; }
+.doc-opp-line:last-child { margin-bottom: 0; }
+.doc-opp-k { display: block; font-size: 8pt; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--doc-muted); }
+
+/* The word carries the priority; the tint is a secondary cue only. */
+.doc-pri { font-weight: 650; }
+.doc-pri-critical { color: #a51c1c; }
+.doc-pri-high { color: #9a4a09; }
+.doc-pri-medium { color: #7c5c0a; }
+.doc-pri-low { color: var(--doc-muted); }
+
+.doc-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; border-top: 1px solid var(--doc-rule); padding-top: 0.75rem; margin-top: 2.5rem; font-size: 8.5pt; color: var(--doc-muted); }
+
+@media print {
+  @page { size: A4; margin: 14mm 12mm; }
+  html, body { background: #fff; }
+  .print-doc { max-width: none; margin: 0; padding: 0; font-size: 10pt; }
+  /* Keep a heading with the block it introduces, and never split a card. */
+  .doc-section { break-inside: auto; margin-bottom: 1.4rem; }
+  .doc-section > h2 { break-after: avoid; break-inside: avoid; }
+  .doc-keep, .doc-opp, .doc-kpis, .doc-chart, .doc-table { break-inside: avoid; }
+  .doc-table thead { display: table-header-group; }
+  .doc-table tr { break-inside: avoid; }
+  .doc-cover { break-after: page; padding-bottom: 1rem; }
+  .doc-body, .doc-note, .doc-opp-line { orphans: 3; widows: 3; }
+  .doc-footer { break-inside: avoid; }
+  /* Tints must survive the browser's "background graphics" default. */
+  .doc-opp-n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

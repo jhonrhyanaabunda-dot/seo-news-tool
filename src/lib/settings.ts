@@ -1,6 +1,7 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { inQuietHours, localParts } from "./local-time";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 
@@ -33,6 +34,16 @@ export const settingsSchema = z.object({
   newsLookbackDays: z.coerce.number().int().min(1).max(90).default(30),
   retentionDays: z.coerce.number().int().min(14).max(1095).default(180),
   schedulerPaused: z.boolean().default(false),
+  /**
+   * Overnight window in which a crawler outage is still detected and logged but
+   * no email is sent. The monitoring machine is a Mac that sleeps, so a nightly
+   * gap is expected rather than newsworthy; an outage that is still unresolved
+   * when the window ends does send, which is the case worth waking up for.
+   * Set both to the same hour to alert around the clock.
+   */
+  crawlerQuietHoursEnabled: z.boolean().default(true),
+  crawlerQuietStartHour: z.coerce.number().int().min(0).max(23).default(21),
+  crawlerQuietEndHour: z.coerce.number().int().min(0).max(23).default(7),
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -76,22 +87,5 @@ export async function getPeriodMarker(key: string): Promise<string | null> {
   return typeof row?.value === "string" ? row.value : null;
 }
 
-/** Local calendar parts in the configured timezone. */
-export function localParts(date: Date, timeZone: string) {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-    weekday: "short",
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    hour: Number(parts.hour),
-    weekday: weekdays.indexOf(parts.weekday),
-  };
-}
+// Re-exported so callers keep importing scheduling helpers from one place.
+export { inQuietHours, localParts };

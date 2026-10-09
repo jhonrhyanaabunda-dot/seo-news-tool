@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { changeOwnPasswordAction, createUserAction, editUserAction, resetPasswordAction, type UserFormState } from "@/app/actions/users";
+import { changeOwnPasswordAction, createUserAction, editUserAction, resetPasswordAction, setUserDealershipsAction, type UserFormState } from "@/app/actions/users";
 
 function Result({ state }: { state: UserFormState }) {
   if (!state) return null;
@@ -44,9 +44,11 @@ export function CreateUserForm() {
           Role
         </label>
         <select id="u-role" name="role" defaultValue="viewer" className="input">
-          <option value="viewer">Viewer — dashboards, reports, news review, rescans</option>
+          <option value="viewer">Viewer — whole portfolio, read-only</option>
           <option value="admin">Administrator — also manages dealerships, settings and users</option>
+          <option value="client">Dealership — only the dealerships you assign</option>
         </select>
+        <p className="mt-1 text-xs text-slate-500">A dealership account sees nothing until you assign it at least one dealership.</p>
       </div>
       <button type="submit" className="btn-primary" disabled={pending}>
         {pending ? "Creating…" : "Create user"}
@@ -127,5 +129,39 @@ export function ChangePasswordForm() {
       </button>
       <Result state={state} />
     </form>
+  );
+}
+
+/**
+ * Dealership access for one client account. Shown collapsed so the user table
+ * stays readable; opening it reveals every dealership with the current
+ * assignments ticked.
+ */
+export function DealershipAccessForm({ userId, email, options, assigned }: { userId: number; email: string; options: Array<{ id: number; name: string }>; assigned: number[] }) {
+  const [state, action, pending] = useActionState<UserFormState, FormData>(setUserDealershipsAction, undefined);
+  const set = new Set(assigned);
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-xs font-medium text-brand-700 hover:underline">
+        Dealership access ({assigned.length || "none"})
+      </summary>
+      <form action={action} className="mt-2 space-y-2">
+        <input type="hidden" name="userId" value={userId} />
+        <fieldset className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
+          <legend className="sr-only">Dealerships {email} may see</legend>
+          {options.length === 0 && <p className="text-xs text-slate-500">No dealerships exist yet.</p>}
+          {options.map((d) => (
+            <label key={d.id} className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" name="dealershipId" value={d.id} defaultChecked={set.has(d.id)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-100" />
+              {d.name}
+            </label>
+          ))}
+        </fieldset>
+        <button type="submit" className="btn btn-sm" disabled={pending}>
+          {pending ? "Saving…" : "Save access"}
+        </button>
+        <Result state={state} />
+      </form>
+    </details>
   );
 }

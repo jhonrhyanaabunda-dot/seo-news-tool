@@ -75,13 +75,25 @@ export async function markScanFailed(scanId: number, message: string) {
  * Cancel a scan. A queued job is cancelled with it so no crawler picks it up; a
  * crawler already running it sees the status within one page and stops.
  */
-export async function cancelScan(scanId: number) {
-  await db
+/**
+ * Cancel a running or queued scan.
+ *
+ * `dealershipId` binds the scan to the dealership the request came from. The
+ * caller supplies both, and only the pairing is trusted — a scan id belonging
+ * to another dealership matches nothing and changes nothing. Returns whether a
+ * scan was actually cancelled so the caller can tell a mismatch from a scan
+ * that had already finished.
+ */
+export async function cancelScan(scanId: number, dealershipId: number): Promise<boolean> {
+  const cancelled = await db
     .update(seoScans)
     .set({ status: "cancelled", completedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(seoScans.id, scanId), inArray(seoScans.status, [...ACTIVE_SCAN_STATUSES])));
+    .where(and(eq(seoScans.id, scanId), eq(seoScans.dealershipId, dealershipId), inArray(seoScans.status, [...ACTIVE_SCAN_STATUSES])))
+    .returning({ id: seoScans.id });
+  if (!cancelled.length) return false;
   await db
     .update(jobs)
     .set({ status: "cancelled", completedAt: new Date(), lockedAt: null, lockedBy: null })
     .where(and(eq(jobs.type, "seo_scan"), eq(jobs.status, "queued"), sql`(${jobs.payload}->>'scanId')::bigint = ${scanId}`));
+  return true;
 }

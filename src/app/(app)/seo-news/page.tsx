@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { CalendarClock, Newspaper } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
+import { isClient } from "@/lib/auth/tenant";
 import { env } from "@/lib/env";
 import { getSeoNews, listSeoFeeds, SEO_NEWS_PERIODS } from "@/lib/news/seo-industry";
 import { SEO_TOPIC_LABELS, SEO_TOPIC_RULES } from "@/lib/news/seo-topics";
@@ -17,6 +19,8 @@ const PAGE_SIZE = 30;
 
 export default async function SeoNewsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
+  // Hidden from the nav for dealership logins; also blocked if one types the URL.
+  if (isClient(user)) notFound();
   const isAdmin = user.role === "admin";
   const sp = await searchParams;
   const feedId = Number(sp.feed) || undefined;

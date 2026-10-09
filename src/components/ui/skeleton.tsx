@@ -13,7 +13,9 @@ export function SkelHeader() {
   return (
     <div className="mb-6 space-y-2">
       <SkelLine className="h-7 w-56" />
-      <SkelLine className="h-4 w-80 bg-slate-100" />
+      {/* w-80 is exactly 320px, which overflowed the smallest supported screen
+          once the page gutter was added; cap it instead of fixing the width. */}
+      <SkelLine className="h-4 w-full max-w-80 bg-slate-100" />
     </div>
   );
 }

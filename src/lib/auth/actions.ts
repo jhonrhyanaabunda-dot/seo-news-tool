@@ -9,6 +9,7 @@ import { users } from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
 import { checkRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { verifyPassword } from "./password";
+import { safeNextPath } from "./safe-next";
 import { createSession, destroySession } from "./session";
 
 const loginSchema = z.object({
@@ -59,8 +60,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   // Read once by the app layout to play the sign-in intro; short-lived and not secret.
   (await cookies()).set("a3_intro", "1", { httpOnly: false, sameSite: "lax", path: "/", maxAge: 60 });
 
-  const next = parsed.data.next && parsed.data.next.startsWith("/") && !parsed.data.next.startsWith("//") ? parsed.data.next : "/";
-  redirect(next);
+  redirect(safeNextPath(parsed.data.next));
 }
 
 export async function logoutAction() {

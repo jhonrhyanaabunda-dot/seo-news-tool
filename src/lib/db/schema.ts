@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -17,7 +18,12 @@ import {
 
 /* ────────────────────────────── Enums ─────────────────────────────── */
 
-export const userRoleEnum = pgEnum("user_role", ["admin", "viewer"]);
+/**
+ * `admin` and `viewer` are A3 staff and see the whole portfolio; `viewer` is
+ * read-only. `client` is a dealership login and sees only the dealerships
+ * listed for it in `userDealerships`. See `src/lib/auth/tenant.ts`.
+ */
+export const userRoleEnum = pgEnum("user_role", ["admin", "viewer", "client"]);
 export const scanStatusEnum = pgEnum("scan_status", ["queued", "crawling", "finalizing", "completed", "failed", "cancelled"]);
 export const scanTriggerEnum = pgEnum("scan_trigger", ["scheduled", "manual"]);
 export const pageStatusEnum = pgEnum("page_status", ["pending", "fetched", "failed", "skipped"]);
@@ -26,7 +32,7 @@ export const checkStatusEnum = pgEnum("check_status", ["pass", "warn", "fail", "
 export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_relevant", "reviewed"]);
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
-export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news"]);
+export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset"]);
 export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
@@ -149,6 +155,30 @@ export const dealerships = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("dealerships_host_idx").on(t.host), index("dealerships_active_idx").on(t.isActive)],
+);
+
+/**
+ * Which dealerships a `client` user may see. A3 staff (`admin`, `viewer`) are
+ * not listed here at all — they reach the whole portfolio by role, so adding a
+ * row for them would be meaningless. Authorisation always reads this table on
+ * the server; a dealership id arriving from the browser is only ever a lookup
+ * key, never a grant.
+ */
+export const userDealerships = pgTable(
+  "user_dealerships",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.dealershipId] }),
+    index("user_dealerships_dealership_idx").on(t.dealershipId),
+  ],
 );
 
 export const newsKeywords = pgTable(

@@ -6,7 +6,7 @@ import { diffFingerprints } from "@/lib/changes/detect";
 import { env } from "@/lib/env";
 import { CHECKS_BY_KEY } from "@/lib/seo/checks/config";
 import { getSettings, type AppSettings } from "@/lib/settings";
-import { sendTrackedEmail } from "./send";
+import { recordSkippedNoRecipients, sendTrackedEmail } from "./send";
 import { sameWebsite } from "@/lib/seo/site-identity";
 import { renderAlertEmail, renderDigestEmail, type DigestDealer } from "./templates";
 import { OUTCOME_META } from "@/lib/seo/outcome";
@@ -132,7 +132,7 @@ const bySignificance = (a: DigestDealer, b: DigestDealer) => Number(b.hasChanges
  * meaningful to report are skipped (unless "send when no changes" is enabled);
  * the weekly newsletter always goes out while there is SEO industry news to share.
  */
-export async function sendDigests(kind: "daily" | "weekly", periodKey: string): Promise<{ recipients: number; sent: number; skipped: number; failed: number }> {
+export async function sendDigests(kind: "daily" | "weekly", periodKey: string): Promise<{ recipients: number; sent: number; skipped: number; failed: number; noRecipients: boolean }> {
   const s = await getSettings();
   const periodEnd = new Date();
   const periodStart = new Date(periodEnd.getTime() - (kind === "daily" ? 1 : 7) * 86_400_000);
@@ -154,6 +154,20 @@ export async function sendDigests(kind: "daily" | "weekly", periodKey: string): 
   };
 
   const periodLabel = digestPeriodLabel(kind, periodStart, periodEnd);
+
+  // Same rule as alerts: an empty recipient map is a configuration problem, not
+  // a quiet success, so it is recorded and surfaced rather than returning zero.
+  if (byRecipient.size === 0) {
+    await recordSkippedNoRecipients({
+      dedupeKey: `digest:${kind}:${periodKey}:no-recipients`,
+      kind: kind === "daily" ? "daily_digest" : "weekly_digest",
+      subject: `${kind === "daily" ? "Daily digest" : "Weekly newsletter"} — ${periodLabel}`,
+      reason: "No active email recipients configured. Add management recipients in Settings, or notification emails on each dealership.",
+      payload: { periodKey },
+    });
+    return { recipients: 0, sent: 0, skipped: 1, failed: 0, noRecipients: true };
+  }
+
   let sent = 0;
   let skipped = 0;
   let failed = 0;
@@ -188,7 +202,7 @@ export async function sendDigests(kind: "daily" | "weekly", periodKey: string): 
     .where(and(gte(alerts.createdAt, periodStart), sql`${alerts.includedInDigestAt} is null`));
 
   if (failed > 0) throw new Error(`${failed} digest email(s) failed to send; they will be retried.`);
-  return { recipients: byRecipient.size, sent, skipped, failed };
+  return { recipients: byRecipient.size, sent, skipped, failed, noRecipients: false };
 }
 
 /**
@@ -214,11 +228,11 @@ export async function sendNewsletterPreview(to: string, requestedBy: number): Pr
 }
 
 /** Immediate email for a critical alert. Idempotent per alert and recipient. */
-export async function sendAlertEmail(alertId: number): Promise<{ sent: number; failed: number }> {
+export async function sendAlertEmail(alertId: number): Promise<{ sent: number; failed: number; skipped: number }> {
   const [alert] = await db.select().from(alerts).where(eq(alerts.id, alertId)).limit(1);
-  if (!alert) return { sent: 0, failed: 0 };
+  if (!alert) return { sent: 0, failed: 0, skipped: 0 };
   const [d] = await db.select().from(dealerships).where(eq(dealerships.id, alert.dealershipId)).limit(1);
-  if (!d) return { sent: 0, failed: 0 };
+  if (!d) return { sent: 0, failed: 0, skipped: 0 };
   const s = await getSettings();
   const recipients = [...new Set([...(d.notificationEmails ?? []), ...s.managementRecipients].map((e) => e.toLowerCase()))];
   const { subject, html, text } = renderAlertEmail({
@@ -231,6 +245,20 @@ export async function sendAlertEmail(alertId: number): Promise<{ sent: number; f
     detectedAt: alert.createdAt,
     timeZone: env().APP_TIMEZONE,
   });
+  // Nobody to tell is not a success. The alert stays un-notified so it is still
+  // visible as outstanding, and the skip is recorded with its reason.
+  if (recipients.length === 0) {
+    await recordSkippedNoRecipients({
+      dedupeKey: `alert:${alert.id}:no-recipients`,
+      kind: "alert",
+      dealershipId: d.id,
+      subject,
+      reason: `No active email recipients configured for ${d.name}. Add notification emails to this dealership, or management recipients in Settings.`,
+      payload: { alertId: alert.id },
+    });
+    return { sent: 0, failed: 0, skipped: 1 };
+  }
+
   let sent = 0;
   let failed = 0;
   for (const to of recipients) {
@@ -240,5 +268,5 @@ export async function sendAlertEmail(alertId: number): Promise<{ sent: number; f
   }
   if (failed === 0) await db.update(alerts).set({ notifiedAt: new Date() }).where(eq(alerts.id, alert.id));
   if (failed > 0) throw new Error(`${failed} alert email(s) failed to send; they will be retried.`);
-  return { sent, failed };
+  return { sent, failed, skipped: 0 };
 }

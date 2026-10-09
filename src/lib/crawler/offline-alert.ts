@@ -6,7 +6,7 @@ import { sendTrackedEmail } from "@/lib/email/send";
 import { renderCrawlerStatusEmail } from "@/lib/email/templates";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { getSettings } from "@/lib/settings";
+import { getSettings, inQuietHours } from "@/lib/settings";
 import { onlineRegions } from "./heartbeat";
 
 /**
@@ -31,6 +31,8 @@ interface OfflineState {
   regions: string[];
   /** Every recipient got the offline e-mail. Until then, sending is retried on later checks. */
   notified: boolean;
+  /** Set once when an outage is first held back by the quiet window, so the log says so only once. */
+  quietLogged?: boolean;
 }
 
 let lastCheckAt = 0;
@@ -87,6 +89,20 @@ export async function checkCrawlerAvailability(now = new Date(), opts: { force?:
     }
     if (!state || state.notified) return null;
     const waitingScans = stranded.reduce((n, w) => n + Number(w.n), 0);
+
+    // Detection and logging always run; only the e-mail waits. A Mac that sleeps
+    // overnight and wakes by itself therefore produces no mail at all, because
+    // recovery sees `notified: false` and stays silent too. An outage that is
+    // still unresolved when the window ends alerts on the next check.
+    const s = await getSettings();
+    if (inQuietHours(now, s, e.APP_TIMEZONE)) {
+      if (!state.quietLogged) {
+        await db.update(settings).set({ value: { ...state, quietLogged: true }, updatedAt: new Date() }).where(eq(settings.key, STATE_KEY));
+        await logger.info("crawler", `Crawler offline for ${state.regions.join(", ")} during quiet hours; ${waitingScans} scan(s) waiting. E-mail held until ${s.crawlerQuietEndHour}:00.`);
+      }
+      return null;
+    }
+
     if (await notify("offline", state, waitingScans, now)) {
       await db.update(settings).set({ value: { ...state, notified: true }, updatedAt: new Date() }).where(eq(settings.key, STATE_KEY));
     }

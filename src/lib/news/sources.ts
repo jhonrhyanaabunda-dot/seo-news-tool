@@ -49,8 +49,27 @@ export async function addNewsSource(input: { dealershipId: number; sourceType: s
   return inserted.length ? null : "That feed has already been added.";
 }
 
-export async function removeNewsSource(sourceId: number): Promise<void> {
-  await db.delete(newsSources).where(eq(newsSources.id, sourceId));
+/**
+ * Remove a news source, but only one that the given dealership actually has.
+ *
+ * The id arrives from a form, so it proves nothing on its own; the delete has
+ * to match the same set `listSourcesForAdmin` shows for this dealership — its
+ * own sources, plus the shared ones for its brand. Deleting by id alone would
+ * let a posted id reach a source belonging to a dealership the caller is not
+ * working on. Returns whether a row was removed, so the caller can tell a
+ * mismatch from an already-deleted source.
+ */
+export async function removeNewsSource(sourceId: number, dealership: Pick<Dealership, "id" | "brand">): Promise<boolean> {
+  const removed = await db
+    .delete(newsSources)
+    .where(
+      and(
+        eq(newsSources.id, sourceId),
+        or(eq(newsSources.dealershipId, dealership.id), and(isNull(newsSources.dealershipId), sql`lower(${newsSources.brand}) = lower(${dealership.brand})`)),
+      ),
+    )
+    .returning({ id: newsSources.id });
+  return removed.length > 0;
 }
 
 export async function recordSourceFetch(sourceId: number, error: string | null): Promise<void> {

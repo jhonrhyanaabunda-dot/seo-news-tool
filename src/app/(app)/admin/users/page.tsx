@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
-import { getUsers } from "@/lib/queries/system";
+import { getDealershipAssignments, getUsers } from "@/lib/queries/system";
+import { getDealershipOptions } from "@/lib/queries/news";
 import { deleteUserAction, updateUserAction } from "@/app/actions/users";
-import { CreateUserForm, EditUserForm, ResetPasswordForm } from "@/components/admin/user-forms";
+import { CreateUserForm, DealershipAccessForm, EditUserForm, ResetPasswordForm } from "@/components/admin/user-forms";
 import { SubmitButton } from "@/components/client/submit-button";
 import { Badge, Card, PageHeader, TableWrap } from "@/components/ui";
 import { fmtDateTime } from "@/components/format";
@@ -13,11 +14,11 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const me = await requireAdmin();
-  const list = await getUsers();
+  const [list, assignments, dealerOptions] = await Promise.all([getUsers(), getDealershipAssignments(), getDealershipOptions()]);
   const tz = env().APP_TIMEZONE;
   return (
     <>
-      <PageHeader title="Users" description="Who can sign in. Viewers can review reports and news; administrators also manage dealerships, settings and users." />
+      <PageHeader title="Users" description="Who can sign in. Viewers see the whole portfolio read-only; administrators also manage dealerships, settings and users; dealership accounts see only the dealerships assigned to them." />
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
           <TableWrap caption="User accounts">
@@ -41,8 +42,9 @@ export default async function UsersPage() {
                     <div className="text-xs text-slate-500">{u.email}</div>
                     {!u.isActive && <Badge tone="critical">Deactivated</Badge>}
                     <EditUserForm user={{ id: u.id, name: u.name, email: u.email }} />
+                    {u.role === "client" && <DealershipAccessForm userId={u.id} email={u.email} options={dealerOptions} assigned={assignments.get(u.id) ?? []} />}
                   </td>
-                  <td>{u.role === "admin" ? <Badge tone="accent">Administrator</Badge> : <Badge>Viewer</Badge>}</td>
+                  <td>{u.role === "admin" ? <Badge tone="accent">Administrator</Badge> : u.role === "client" ? <Badge tone="warning">Dealership</Badge> : <Badge>Viewer</Badge>}</td>
                   <td className="whitespace-nowrap text-slate-600">{fmtDateTime(u.lastLoginAt, tz)}</td>
                   <td>
                     {u.id !== me.id && (

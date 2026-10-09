@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { assertAdmin, assertUser } from "@/lib/auth/guards";
+import { assertAdmin } from "@/lib/auth/guards";
+import { assertDealershipAccess } from "@/lib/auth/tenant";
 import { addCustomKeyword, createDealership, deleteDealership, removeKeyword, updateDealership, validateDealershipForm, type DealershipFormErrors } from "@/lib/dealerships/service";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { kickProcessing } from "@/lib/jobs/kick";
@@ -62,8 +63,8 @@ export async function deleteDealershipAction(formData: FormData) {
 }
 
 export async function scanNowAction(formData: FormData) {
-  const user = await assertUser();
   const id = idSchema.parse(formData.get("id"));
+  const user = await assertDealershipAccess(id);
   const limit = await checkRateLimit({ key: `scan-now:${user.id}`, limit: 20, windowSeconds: 3600 });
   if (!limit.allowed) redirect(`/dealerships/${id}?notice=rate-limited`);
   const scanId = await createScanAndJob(id, "manual");
@@ -73,8 +74,8 @@ export async function scanNowAction(formData: FormData) {
 }
 
 export async function newsScanNowAction(formData: FormData) {
-  const user = await assertUser();
   const id = idSchema.parse(formData.get("id"));
+  const user = await assertDealershipAccess(id);
   const limit = await checkRateLimit({ key: `news-now:${user.id}`, limit: 20, windowSeconds: 3600 });
   if (!limit.allowed) redirect(`/dealerships/${id}?tab=news&notice=rate-limited`);
   await enqueueJob({ type: "news_scan", dealershipId: id, dedupeKey: `news:${id}`, priority: 20 });
@@ -83,12 +84,16 @@ export async function newsScanNowAction(formData: FormData) {
 }
 
 export async function cancelScanAction(formData: FormData) {
-  await assertAdmin();
   const id = idSchema.parse(formData.get("id"));
   const scanId = idSchema.parse(formData.get("scanId"));
-  await cancelScan(scanId);
+  // Admin for the operation, dealership access for the target, and the scan
+  // itself must belong to that dealership — the form supplies both ids, so
+  // neither one may vouch for the other.
+  await assertAdmin();
+  await assertDealershipAccess(id);
+  const cancelled = await cancelScan(scanId, id);
   revalidatePath(`/dealerships/${id}`);
-  redirect(`/dealerships/${id}?notice=scan-cancelled`);
+  redirect(`/dealerships/${id}?notice=${cancelled ? "scan-cancelled" : "scan-not-cancellable"}`);
 }
 
 export type KeywordState = { error?: string; ok?: boolean } | undefined;

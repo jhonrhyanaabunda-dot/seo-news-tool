@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { emailConfigProblem } from "@/lib/email/config";
-import { getCrawlers, getJobOverview, getRecentEmails, getRecentScanFailures, getSystemLogs } from "@/lib/queries/system";
+import { getCrawlers, getEmailRecipientHealth, getJobOverview, getRecentEmails, getRecentScanFailures, getSystemLogs } from "@/lib/queries/system";
 import { allRegions } from "@/lib/crawler/regions";
 import { ONLINE_WINDOW_MINUTES } from "@/lib/crawler/heartbeat";
 import { ALL_PROVIDERS, activeProviders } from "@/lib/news/providers";
@@ -25,7 +25,15 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   await requireAdmin();
   const { notice } = await searchParams;
   const tz = env().APP_TIMEZONE;
-  const [jobs, failures, logs, emails, crawlers, aiUsed] = await Promise.all([getJobOverview(), getRecentScanFailures(), getSystemLogs(), getRecentEmails(), getCrawlers(), aiReportsUsedThisMonth()]);
+  const [jobs, failures, logs, emails, crawlers, aiUsed, recipients] = await Promise.all([
+    getJobOverview(),
+    getRecentScanFailures(),
+    getSystemLogs(),
+    getRecentEmails(),
+    getCrawlers(),
+    aiReportsUsedThisMonth(),
+    getEmailRecipientHealth(),
+  ]);
   const regions = allRegions(env().CRAWLER_EXTRA_REGIONS);
   const onlineCutoff = jobs.generatedAt - ONLINE_WINDOW_MINUTES * 60_000;
   const defaultRegion = env().DEFAULT_CRAWLER_REGION;
@@ -34,6 +42,30 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   return (
     <>
       {notice === "tick-started" && <Notice tone="success">Processing started in the background. Refresh in a minute to see progress.</Notice>}
+      {recipients.noRecipientsAtAll ? (
+        <Notice tone="warning">
+          <strong>No active email recipients configured.</strong> Nothing is being delivered — no critical alerts, no digests, no newsletter.{" "}
+          <Link href="/admin/settings" className="underline">
+            Add management recipients
+          </Link>{" "}
+          or add notification emails to each dealership.
+          {recipients.skippedForNoRecipients > 0 && ` ${recipients.skippedForNoRecipients} email${recipients.skippedForNoRecipients === 1 ? " has" : "s have"} already been skipped for this reason.`}
+        </Notice>
+      ) : (
+        recipients.uncovered.length > 0 && (
+          <Notice tone="warning">
+            <strong>
+              {recipients.uncovered.length} dealership{recipients.uncovered.length === 1 ? "" : "s"} with no email recipients:
+            </strong>{" "}
+            {recipients.uncovered.map((d) => d.name).join(", ")}. Alerts for{" "}
+            {recipients.uncovered.length === 1 ? "it" : "them"} cannot be delivered.{" "}
+            <Link href="/admin/dealerships" className="underline">
+              Add notification emails
+            </Link>
+            .
+          </Notice>
+        )
+      )}
       <PageHeader
         title="System"
         description="Background processing, failures and delivery logs."

@@ -53,3 +53,38 @@ export async function sendTrackedEmail(input: {
     return "failed";
   }
 }
+
+/**
+ * Record that an email could not be sent because nobody was configured to
+ * receive it.
+ *
+ * Writing the row matters: without it an empty recipient list produced
+ * "0 sent, 0 failed", which every caller read as success, so alerting could be
+ * switched off by clearing one settings field and nothing would ever say so.
+ * The row carries an empty recipient list and an explanation, and is keyed like
+ * any other send so a retry does not pile up duplicates.
+ */
+export async function recordSkippedNoRecipients(input: {
+  dedupeKey: string;
+  kind: EmailReport["kind"];
+  dealershipId?: number | null;
+  subject: string;
+  reason: string;
+  payload?: Record<string, unknown>;
+}): Promise<"skipped"> {
+  await db
+    .insert(emailReports)
+    .values({
+      kind: input.kind,
+      dealershipId: input.dealershipId ?? null,
+      recipients: [],
+      subject: input.subject.slice(0, 500),
+      dedupeKey: input.dedupeKey.slice(0, 200),
+      status: "skipped",
+      error: input.reason.slice(0, 2000),
+      payload: input.payload,
+    })
+    .onConflictDoNothing();
+  await logger.warn("email", "Email not sent: no recipients configured", { kind: input.kind, subject: input.subject, reason: input.reason }, input.dealershipId ?? undefined);
+  return "skipped";
+}

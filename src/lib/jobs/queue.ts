@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { jobs, type Job } from "@/lib/db/schema";
 
 /**
@@ -118,8 +119,16 @@ export async function failJobAttempt(job: Job, error: string): Promise<{ final: 
  * Jobs left "running" by an invocation that was killed (timeout, deploy)
  * are returned to the queue. Counts as an attempt so a job that always
  * crashes its worker eventually fails instead of looping forever.
+ *
+ * `onlineRegions` is the set of regions with a live crawler. A scan interrupted
+ * in a region that has none was not at fault — the monitoring machine went away
+ * mid-run, which happens whenever the Mac sleeps — so it is requeued without
+ * spending an attempt. Three such nights would otherwise fail a scan that was
+ * never broken. Nothing loops forever as a result: if the crawler never comes
+ * back, maintenance fails the scan after waiting two days. Omitting the argument
+ * keeps the old behaviour, where every interruption counts.
  */
-export async function recoverStaleJobs(staleAfterMs: number): Promise<Job[]> {
+export async function recoverStaleJobs(staleAfterMs: number, onlineRegions?: Set<string>): Promise<Job[]> {
   const cutoff = new Date(Date.now() - staleAfterMs);
   const stale = await db
     .select()
@@ -127,6 +136,14 @@ export async function recoverStaleJobs(staleAfterMs: number): Promise<Job[]> {
     .where(and(eq(jobs.status, "running"), lt(jobs.lockedAt, cutoff)));
   const finalFailures: Job[] = [];
   for (const job of stale) {
+    const offlineCrawler = onlineRegions !== undefined && job.type === "seo_scan" && !onlineRegions.has(job.region ?? env().DEFAULT_CRAWLER_REGION);
+    if (offlineCrawler) {
+      await db
+        .update(jobs)
+        .set({ status: "queued", lockedAt: null, lockedBy: null, lastError: "Interrupted while the crawler was offline; requeued without using an attempt." })
+        .where(eq(jobs.id, job.id));
+      continue;
+    }
     const { final } = await failJobAttempt(job, "Job was interrupted (worker timed out or restarted).");
     if (final) finalFailures.push(job);
   }

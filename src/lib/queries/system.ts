@@ -1,8 +1,9 @@
 import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { crawlerWorkers, dealerships, emailReports, jobs, seoScans, systemLogs, users } from "@/lib/db/schema";
+import { crawlerWorkers, dealerships, emailReports, jobs, seoScans, systemLogs, userDealerships, users } from "@/lib/db/schema";
 import { STALE_CRAWLER_HOURS } from "@/lib/jobs/maintenance";
+import { getSettings } from "@/lib/settings";
 
 export async function getJobOverview() {
   const counts = await db.select({ status: jobs.status, n: sql<number>`count(*)::int` }).from(jobs).groupBy(jobs.status);
@@ -77,4 +78,44 @@ export async function getUsers() {
     .select({ id: users.id, email: users.email, name: users.name, role: users.role, isActive: users.isActive, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt })
     .from(users)
     .orderBy(users.name);
+}
+
+/** Dealership assignments for every client account, keyed by user id. */
+export async function getDealershipAssignments(): Promise<Map<number, number[]>> {
+  const rows = await db.select({ userId: userDealerships.userId, dealershipId: userDealerships.dealershipId }).from(userDealerships);
+  const byUser = new Map<number, number[]>();
+  for (const r of rows) byUser.set(r.userId, [...(byUser.get(r.userId) ?? []), r.dealershipId]);
+  return byUser;
+}
+
+/**
+ * Whether anyone is configured to receive email, and how many sends have
+ * already been skipped because nobody was.
+ *
+ * A dealership is "covered" when it has its own notification address or when a
+ * management recipient exists. Reported so the admin surfaces can say plainly
+ * that alerting is switched off, which is otherwise invisible: an email with no
+ * recipients used to look exactly like a successful one.
+ */
+export async function getEmailRecipientHealth() {
+  const s = await getSettings();
+  const managementCount = s.managementRecipients.length;
+  const rows = await db
+    .select({ id: dealerships.id, name: dealerships.name, notificationEmails: dealerships.notificationEmails })
+    .from(dealerships)
+    .where(eq(dealerships.isActive, true));
+  const uncovered = managementCount > 0 ? [] : rows.filter((d) => (d.notificationEmails ?? []).length === 0);
+  const [skipped] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(emailReports)
+    .where(and(eq(emailReports.status, "skipped"), sql`jsonb_array_length(${emailReports.recipients}) = 0`));
+  return {
+    managementCount,
+    newsletterCount: s.newsletterRecipients.length,
+    totalDealerships: rows.length,
+    uncovered: uncovered.map((d) => ({ id: d.id, name: d.name })),
+    skippedForNoRecipients: Number(skipped?.n ?? 0),
+    /** True when nothing at all would be delivered today. */
+    noRecipientsAtAll: managementCount === 0 && rows.every((d) => (d.notificationEmails ?? []).length === 0),
+  };
 }

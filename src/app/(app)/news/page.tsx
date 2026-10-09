@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/guards";
+import { accessibleDealershipIds } from "@/lib/auth/tenant";
 import { env } from "@/lib/env";
 import { getDealershipOptions, getNews, getNewsByDealership, NEWS_STATUSES, parseNewsScope } from "@/lib/queries/news";
 import { getSettings } from "@/lib/settings";
@@ -18,20 +19,23 @@ const PER_DEALERSHIP = 10;
 const PAGE_SIZE = 30;
 
 export default async function NewsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  await requireUser();
+  const user = await requireUser();
   const sp = await searchParams;
   const status = sp.status && (sp.status === "all" || (NEWS_STATUSES as readonly string[]).includes(sp.status)) ? sp.status : "new";
   const dealershipId = sp.dealership ? Number(sp.dealership) || undefined : undefined;
   const minScore = sp.min ? Number(sp.min) || undefined : undefined;
   const scope = parseNewsScope(sp.scope);
   const page = Math.max(1, Number(sp.p) || 1);
-  const filters = { status: status === "all" ? undefined : status, minScore, scope };
+  // `?dealership=` is a filter, never a grant: it intersects with `allowed`, so
+  // asking for someone else's dealership returns an empty list.
+  const allowed = await accessibleDealershipIds(user);
+  const filters = { status: status === "all" ? undefined : status, minScore, scope, allowed };
   const tz = env().APP_TIMEZONE;
 
   const [sections, single, dealers, settings] = await Promise.all([
     getNewsByDealership({ ...filters, dealershipId, perDealership: dealershipId ? 0 : PER_DEALERSHIP }),
     dealershipId ? getNews({ ...filters, dealershipId, page, pageSize: PAGE_SIZE }) : null,
-    getDealershipOptions(),
+    getDealershipOptions(allowed),
     getSettings(),
   ]);
   const qs = (next: { dealership?: number; p?: number }) => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
+import { isClient } from "@/lib/auth/tenant";
 import { logoutAction } from "@/lib/auth/actions";
 import { NavLinks } from "@/components/client/nav-links";
 import { SignInIntro } from "@/components/client/sign-in-intro";
@@ -12,8 +13,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" }> = [
     { href: "/", label: "Dashboard", icon: "dashboard" },
     { href: "/news", label: "News", icon: "news" },
-    { href: "/seo-news", label: "SEO news", icon: "seoNews" },
   ];
+  // The industry feed is A3's own trade reading, not a dealership deliverable.
+  if (!isClient(user)) items.push({ href: "/seo-news", label: "SEO news", icon: "seoNews" });
   if (user.role === "admin") {
     items.push(
       { href: "/admin/dealerships", label: "Dealerships", icon: "dealerships" },
@@ -43,7 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             {user.name}
           </Link>
           <div className="truncate text-xs text-blue-200/80">
-            {user.email} · {user.role === "admin" ? "Administrator" : "Viewer"}
+            {user.email} · {user.role === "admin" ? "Administrator" : user.role === "client" ? "Dealership" : "Viewer"}
           </div>
           <form action={logoutAction} className="mt-2">
             <button type="submit" className="inline-flex items-center gap-1.5 text-xs text-blue-100 hover:text-white">

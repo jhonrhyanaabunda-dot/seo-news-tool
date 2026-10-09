@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { assertUser } from "@/lib/auth/guards";
+import { accessibleDealershipIds } from "@/lib/auth/tenant";
+import { allowedFilter } from "@/lib/queries/scope";
 import { db } from "@/lib/db";
 import { newsArticles } from "@/lib/db/schema";
 
@@ -26,7 +28,9 @@ export async function setArticleStatusAction(formData: FormData) {
       // A reviewer marking brand context "Relevant" is saying it matters to this store, so it joins the store's news.
       ...(parsed.data.status === "relevant" ? { scope: "dealership" as const } : {}),
     })
-    .where(eq(newsArticles.id, parsed.data.articleId));
+    // The article id comes from the page; the dealership filter decides whether
+    // this user may touch it, so a foreign id updates nothing.
+    .where(and(eq(newsArticles.id, parsed.data.articleId), allowedFilter(await accessibleDealershipIds(user), newsArticles.dealershipId)));
   revalidatePath("/news");
   revalidatePath("/", "layout");
 }
@@ -41,7 +45,7 @@ export async function markAllReviewedAction(formData: FormData) {
   await db
     .update(newsArticles)
     .set({ relevance: "reviewed", reviewedBy: user.id, reviewedAt: new Date() })
-    .where(inArray(newsArticles.id, ids.data));
+    .where(and(inArray(newsArticles.id, ids.data), allowedFilter(await accessibleDealershipIds(user), newsArticles.dealershipId)));
   revalidatePath("/news");
   revalidatePath("/", "layout");
 }

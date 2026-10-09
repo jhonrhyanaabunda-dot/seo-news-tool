@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { assertAdmin } from "@/lib/auth/guards";
+import { assertDealershipAccess } from "@/lib/auth/tenant";
+import { getDealership } from "@/lib/queries/dealership";
 import { logger } from "@/lib/logger";
 import { addNewsSource, removeNewsSource } from "@/lib/news/sources";
 
@@ -27,9 +29,18 @@ export async function addNewsSourceAction(_prev: NewsSourceState, formData: Form
 }
 
 export async function removeNewsSourceAction(formData: FormData) {
-  await assertAdmin();
   const id = idSchema.parse(formData.get("id"));
   const sourceId = idSchema.parse(formData.get("sourceId"));
-  await removeNewsSource(sourceId);
+  // Admin for the operation, dealership access for the target, and then the
+  // source must belong to that dealership. The form supplies both ids, so
+  // neither is allowed to vouch for the other.
+  const user = await assertAdmin();
+  await assertDealershipAccess(id);
+  const dealership = await getDealership(id);
+  if (!dealership) return;
+  const removed = await removeNewsSource(sourceId, dealership);
+  if (!removed) {
+    await logger.warn("admin", "News source delete did not match the dealership", { by: user.email, sourceId }, id);
+  }
   revalidatePath(`/admin/dealerships/${id}/edit`);
 }

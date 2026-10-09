@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, Loader2, MinusCircle, Pencil, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, MinusCircle, Pencil, RefreshCw, XCircle } from "lucide-react";
 import { ScanAutoRefresh } from "@/components/client/scan-auto-refresh";
-import { requireUser } from "@/lib/auth/guards";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canAccessDealership, isClient, requireDealershipAccess } from "@/lib/auth/tenant";
+import { getClientDashboard } from "@/lib/queries/client-dashboard";
+import { ClientDashboardView } from "@/components/client-dashboard";
+import { getOpportunities } from "@/lib/queries/client-opportunities";
+import { OpportunitiesView } from "@/components/opportunities-view";
 import { env } from "@/lib/env";
 import { friendlyFetchError } from "@/lib/seo/messages";
 import { CATEGORIES, CHECKS_BY_KEY } from "@/lib/seo/checks/config";
@@ -32,6 +37,7 @@ import {
 import { getNews, parseNewsScope } from "@/lib/queries/news";
 import { cancelScanAction, newsScanNowAction, scanNowAction } from "@/app/actions/dealerships";
 import { Badge, Card, EmptyState, ExternalLink, Notice, PageHeader, Pagination, PriorityBadge, ScoreBadge, ScoreDelta, SeverityBadge, TableWrap, Tabs, cn } from "@/components/ui";
+import { DetailsPrunedNotice, DetailsUnavailableNotice } from "@/components/detail-retention";
 import { ReportView } from "@/components/report-view";
 import { priorityFor } from "@/lib/seo/priority";
 import { RESULT_CLASS_META, classifyPageResult } from "@/lib/seo/result-class";
@@ -51,7 +57,10 @@ type SP = Record<string, string | undefined>;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const d = Number.isInteger(Number(id)) ? await getDealership(Number(id)) : null;
+  // The title would otherwise name a dealership the viewer may not see.
+  const user = await getCurrentUser();
+  if (!user || !Number.isInteger(Number(id)) || !(await canAccessDealership(user, Number(id)))) return { title: "Dealership" };
+  const d = await getDealership(Number(id));
   return { title: d?.name ?? "Dealership" };
 }
 
@@ -59,6 +68,7 @@ const NOTICES: Record<string, { tone: "success" | "info" | "warning"; text: stri
   "scan-queued": { tone: "success", text: "Scan started. Results appear here as soon as it finishes (usually a few minutes)." },
   "scan-running": { tone: "info", text: "A scan is already in progress for this dealership." },
   "scan-cancelled": { tone: "info", text: "The scan was cancelled." },
+  "scan-not-cancellable": { tone: "warning", text: "That scan could not be cancelled: it belongs to another dealership or had already finished." },
   "news-queued": { tone: "success", text: "News check started. New articles will appear shortly." },
   "rate-limited": { tone: "warning", text: "Too many manual requests in the last hour. Please wait before trying again." },
   "site-changed": { tone: "success", text: "Website address updated. A scan of the new address has started; results appear here when it finishes." },
@@ -70,16 +80,23 @@ const NOTICES: Record<string, { tone: "success" | "info" | "warning"; text: stri
 };
 
 export default async function DealershipPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
-  const user = await requireUser();
   const { id: idParam } = await params;
   const sp = await searchParams;
   const id = Number(idParam);
   if (!Number.isInteger(id) || id <= 0) notFound();
+  // Authorisation comes from the session, not from the id in the URL. A client
+  // asking for someone else's dealership gets the same 404 as a missing one.
+  const user = await requireDealershipAccess(id);
   const dealer = await getDealership(id);
   if (!dealer) notFound();
 
   const tz = env().APP_TIMEZONE;
-  const tab = ["overview", "issues", "pages", "protected", "news", "reports", "history"].includes(sp.tab ?? "") ? sp.tab! : "overview";
+  // A dealership login gets the client-facing surfaces only; typing a staff tab
+  // into the URL falls back to the overview rather than rendering it.
+  const CLIENT_TABS = ["overview", "opportunities", "issues", "news", "reports"];
+  const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history"];
+  const allowedTabs = isClient(user) ? CLIENT_TABS : STAFF_TABS;
+  const tab = allowedTabs.includes(sp.tab ?? "") ? sp.tab! : "overview";
   const [{ latest, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
   const issueCounts = latest ? await getIssueCounts(latest.id) : null;
   const base = `/dealerships/${id}`;
@@ -91,6 +108,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
 
   // "Scan started" stops being true once the scan ends; the page has already refreshed to show its results.
   const notice = sp.notice && !((sp.notice === "scan-queued" || sp.notice === "scan-running") && !active) ? NOTICES[sp.notice] : null;
+  const clientView = isClient(user) || sp.view === "client";
   const status = !dealer.isActive || !dealer.seoEnabled ? null : latest?.siteAvailable === false ? "down" : scoreBand(latest?.score);
 
   return (
@@ -112,11 +130,19 @@ export default async function DealershipPage({ params, searchParams }: { params:
             <span>{dealer.brand}</span>
             {(dealer.city || dealer.state) && <span>{[dealer.city, dealer.state].filter(Boolean).join(", ")}</span>}
             {dealer.dealerGroup && <span>{dealer.dealerGroup}</span>}
-            {(dealer.websitePlatform ?? dealer.detectedPlatform) && <span title={dealer.websitePlatform ? "Website platform" : "Detected from the homepage"}>{dealer.websitePlatform ?? dealer.detectedPlatform}</span>}
-            {dealer.lastSuccessfulScanAt && <span className="text-slate-500">Last successful crawl {fmtRelative(dealer.lastSuccessfulScanAt)}</span>}
+            {/* The hosting platform and the word "crawl" are A3's vocabulary;
+                a dealership is told when their site was last checked. */}
+            {!isClient(user) && (dealer.websitePlatform ?? dealer.detectedPlatform) && (
+              <span title={dealer.websitePlatform ? "Website platform" : "Detected from the homepage"}>{dealer.websitePlatform ?? dealer.detectedPlatform}</span>
+            )}
+            {dealer.lastSuccessfulScanAt && (
+              <span className="text-slate-500">
+                {isClient(user) ? "Last checked" : "Last successful crawl"} {fmtRelative(dealer.lastSuccessfulScanAt)}
+              </span>
+            )}
             {!dealer.isActive && <Badge>Inactive</Badge>}
-            {!dealer.seoEnabled && <Badge>SEO monitoring off</Badge>}
-            {!dealer.newsEnabled && <Badge>News monitoring off</Badge>}
+            {!dealer.seoEnabled && <Badge>{isClient(user) ? "Monitoring paused" : "SEO monitoring off"}</Badge>}
+            {!isClient(user) && !dealer.newsEnabled && <Badge>News monitoring off</Badge>}
           </span>
         }
         actions={
@@ -125,9 +151,18 @@ export default async function DealershipPage({ params, searchParams }: { params:
               <form action={scanNowAction}>
                 <input type="hidden" name="id" value={id} />
                 <SubmitButton className="btn" pendingText="Starting…">
-                  <RefreshCw aria-hidden className="h-4 w-4" /> Scan now
+                  <RefreshCw aria-hidden className="h-4 w-4" /> {isClient(user) ? "Check now" : "Scan now"}
                 </SubmitButton>
               </form>
+            )}
+            <Link href={`/report/${id}`} className="btn">
+              <FileText aria-hidden className="h-4 w-4" /> SEO report
+            </Link>
+            {/* Lets A3 show a GM exactly what their login shows, without a second account. */}
+            {!isClient(user) && tab === "overview" && (
+              <Link href={href(clientView ? {} : { view: "client" })} className="btn">
+                {clientView ? "Staff view" : "Client view"}
+              </Link>
             )}
             {user.role === "admin" && (
               <Link href={`/admin/dealerships/${id}/edit`} className="btn">
@@ -186,17 +221,62 @@ export default async function DealershipPage({ params, searchParams }: { params:
         active={tab}
         tabs={[
           { key: "overview", label: "Overview", href: href({}) },
-          { key: "issues", label: "SEO issues", href: href({ tab: "issues" }), count: issueCounts ? issueCounts.bySeverity.critical + issueCounts.bySeverity.warning + issueCounts.bySeverity.info : null },
+          { key: "opportunities", label: "Opportunities", href: href({ tab: "opportunities" }) },
+          { key: "issues", label: isClient(user) ? "Findings" : "SEO issues", href: href({ tab: "issues" }), count: issueCounts ? issueCounts.bySeverity.critical + issueCounts.bySeverity.warning + issueCounts.bySeverity.info : null },
           { key: "pages", label: "Pages", href: href({ tab: "pages" }), count: latest?.pagesScanned ?? null },
           { key: "protected", label: "Protected pages", href: href({ tab: "protected" }), count: latest ? latest.pagesBlocked + latest.pagesNotEvaluated || null : null },
           { key: "news", label: "News", href: href({ tab: "news" }), count: newsCounts.new || null },
           { key: "reports", label: "Reports", href: href({ tab: "reports" }) },
           { key: "history", label: "Crawl history", href: href({ tab: "history" }) },
-        ]}
+          // Crawl diagnostics are A3's working surfaces, not a dealership's.
+        ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports"].includes(t.key))}
       />
 
-      {tab === "overview" && <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} />}
-      {tab === "issues" && (latest ? <IssuesTab scanId={latest.id} sp={sp} href={href} tz={tz} counts={issueCounts!} notEvaluated={latest.pagesBlocked + latest.pagesNotEvaluated} /> : <NoScanYet />)}
+      {tab === "overview" &&
+        // A dealership login always gets the client view. Staff get their own,
+        // and can switch to the client view to demonstrate it without needing a
+        // second account.
+        (clientView ? (
+          <ClientDashboardView
+            data={(await getClientDashboard(id))!}
+            tz={tz}
+            showHeader={false}
+            canScan={dealer.seoEnabled && !active}
+            scanAction={
+              <form action={scanNowAction}>
+                <input type="hidden" name="id" value={id} />
+                <SubmitButton className="btn" pendingText="Starting…">
+                  <RefreshCw aria-hidden className="h-4 w-4" /> Check now
+                </SubmitButton>
+              </form>
+            }
+          />
+        ) : (
+          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} />
+        ))}
+      {tab === "opportunities" &&
+        (latest ? (
+          <OpportunitiesView
+            opportunities={await getOpportunities(latest.id)}
+            scanCompletedAt={latest.completedAt}
+            detailsRetained={latest.detailsRetained}
+            storedIssueTotal={latest.criticalCount + latest.warningCount}
+            tz={tz}
+            base={base}
+          />
+        ) : (
+          <NoScanYet />
+        ))}
+      {tab === "issues" && (latest ? <IssuesTab
+            scanId={latest.id}
+            sp={sp}
+            href={href}
+            tz={tz}
+            counts={issueCounts!}
+            notEvaluated={latest.pagesBlocked + latest.pagesNotEvaluated}
+            detailsRetained={latest.detailsRetained}
+            storedIssueTotal={latest.criticalCount + latest.warningCount}
+          /> : <NoScanYet />)}
       {tab === "pages" && (latest ? <PagesTab scanId={latest.id} sp={sp} href={href} /> : <NoScanYet />)}
       {tab === "news" && <NewsTab dealerId={id} sp={sp} href={href} tz={tz} counts={newsCounts} newsEnabled={dealer.newsEnabled} />}
       {tab === "protected" && (latest ? <ProtectedTab scanId={latest.id} jobStatus={crawlJobStatus(latest)} tz={tz} /> : <NoScanYet />)}
@@ -558,6 +638,8 @@ async function IssuesTab({
   tz,
   counts,
   notEvaluated,
+  detailsRetained,
+  storedIssueTotal,
 }: {
   scanId: number;
   sp: SP;
@@ -565,6 +647,10 @@ async function IssuesTab({
   tz: string;
   counts: Awaited<ReturnType<typeof getIssueCounts>>;
   notEvaluated: number;
+  /** False once housekeeping has removed this scan's individual issue rows. */
+  detailsRetained: boolean;
+  /** Critical + warning counters stored on the scan; they outlive the detail rows. */
+  storedIssueTotal: number;
 }) {
   const page = Math.max(1, Number(sp.p) || 1);
   const pageSize = 50;
@@ -577,6 +663,7 @@ async function IssuesTab({
     pageSize,
   });
   const filtered = sp.check ? rows.filter((r) => r.checkKey === sp.check) : rows;
+  const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1");
   const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check };
   const chip = (label: string, next: SP, active: boolean) => (
     <Link href={href({ ...keep, ...next, p: undefined })} aria-current={active ? "true" : undefined} className={cn("rounded-full px-3 py-1 text-sm ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
@@ -614,7 +701,17 @@ async function IssuesTab({
         </Notice>
       )}
       {filtered.length === 0 ? (
-        <EmptyState title="No issues match these filters" description="Try a different severity or category." />
+        // Four different reasons for an empty list, and only one of them means
+        // the site is clean. Saying "no issues" for the others would be untrue.
+        !detailsRetained && storedIssueTotal > 0 ? (
+          <DetailsPrunedNotice />
+        ) : detailsRetained && total === 0 && storedIssueTotal > 0 ? (
+          <DetailsUnavailableNotice />
+        ) : storedIssueTotal === 0 && total === 0 && !hasFilter ? (
+          <EmptyState title="No issues found" description="This scan did not flag any SEO issues for this dealership." />
+        ) : (
+          <EmptyState title="No issues match these filters" description="Try a different severity or category." />
+        )
       ) : (
         <TableWrap caption="SEO issues found in the latest scan">
           <thead>
@@ -987,6 +1084,7 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
             </Link>
           }
         >
+          {!selected.detailsRetained && <DetailsPrunedNotice />}
           {selected.changeSummary?.previousScanId ? (
             <div className="grid gap-5 md:grid-cols-2">
               <div>
@@ -1025,10 +1123,10 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
             <th scope="col" className="!text-right">
               Score
             </th>
-            <th scope="col" className="!text-right">
+            <th scope="col" className="!text-right" title="Totals are preserved for every scan, even after individual issue records are removed">
               Critical
             </th>
-            <th scope="col" className="!text-right">
+            <th scope="col" className="!text-right" title="Totals are preserved for every scan, even after individual issue records are removed">
               Warnings
             </th>
             <th scope="col" className="!text-right">
@@ -1064,6 +1162,13 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
               <td className="capitalize text-slate-600">
                 {h.trigger}
                 {siteKey(h.websiteUrl) && siteKey(h.websiteUrl) !== currentSite && <div className="text-xs normal-case text-amber-700">{siteKey(h.websiteUrl)}</div>}
+                {/* Visible before the reader clicks, so the counts to the right
+                    are never read as a list that failed to load. */}
+                {h.status === "completed" && !h.detailsRetained && (
+                  <div className="text-xs normal-case text-slate-500" title="Totals below are preserved; the individual issue records for this scan are no longer stored.">
+                    Totals only
+                  </div>
+                )}
               </td>
               <td>
                 {h.status === "completed" ? (

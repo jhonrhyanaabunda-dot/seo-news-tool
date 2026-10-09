@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
+import { accessibleDealershipIds, isClient } from "@/lib/auth/tenant";
+import { getClientDashboard } from "@/lib/queries/client-dashboard";
+import { ClientDashboardView } from "@/components/client-dashboard";
+import { scanNowAction } from "@/app/actions/dealerships";
+import { SubmitButton } from "@/components/client/submit-button";
 import { env } from "@/lib/env";
 import { getDashboardSummary, getDealerRows } from "@/lib/queries/dashboard";
 import { getSettings } from "@/lib/settings";
@@ -22,8 +28,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const user = await requireUser();
   const { error, q, status, sort, dir } = await searchParams;
   const tz = env().APP_TIMEZONE;
-  const [rows, settings] = await Promise.all([getDealerRows(), getSettings()]);
-  const summary = await getDashboardSummary(rows);
+  const allowed = await accessibleDealershipIds(user);
+
+  // A dealership login owns one website and wants to know how it is doing.
+  // Staff keep the portfolio view below, which answers a different question:
+  // which of many sites needs A3's attention today.
+  if (isClient(user)) return <ClientLanding allowed={allowed ?? []} tz={tz} />;
+
+  const [rows, settings] = await Promise.all([getDealerRows(allowed), getSettings()]);
+  const summary = await getDashboardSummary(rows, allowed);
   const now = summary.generatedAt;
 
   const tableRows: DealerTableRow[] = rows.map((r) => ({
@@ -102,6 +115,67 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : (
         <DealershipTable rows={tableRows} initial={{ q, status, sort, dir }} />
       )}
+    </>
+  );
+}
+
+/**
+ * What a dealership login lands on. One assigned dealership is the normal case
+ * and goes straight to its dashboard; the chooser exists for a dealer group
+ * with several rooftops, and deliberately is not the staff fleet table.
+ */
+async function ClientLanding({ allowed, tz }: { allowed: number[]; tz: string }) {
+  if (allowed.length === 0) {
+    return (
+      <EmptyState
+        title="No website assigned yet"
+        description="Your account is set up, but no dealership website has been linked to it. Please contact your A3 Brands account manager."
+      />
+    );
+  }
+
+  if (allowed.length === 1) {
+    const data = await getClientDashboard(allowed[0]);
+    if (!data) {
+      return <EmptyState title="Website unavailable" description="We could not load this dealership. Please contact your A3 Brands account manager." />;
+    }
+    return (
+      <ClientDashboardView
+        data={data}
+        tz={tz}
+        canScan={data.dealership.seoEnabled && !data.activeScan}
+        scanAction={
+          <form action={scanNowAction}>
+            <input type="hidden" name="id" value={data.dealership.id} />
+            <SubmitButton className="btn" pendingText="Starting…">
+              <RefreshCw aria-hidden className="h-4 w-4" /> Check now
+            </SubmitButton>
+          </form>
+        }
+      />
+    );
+  }
+
+  const rows = await getDealerRows(allowed);
+  return (
+    <>
+      <PageHeader title="Your websites" description="Choose a website to see its SEO health." />
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {rows.map((r) => (
+          <li key={r.id}>
+            <Link href={`/dealerships/${r.id}`} className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-300">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-medium text-slate-900">{r.name}</span>
+                <span className="text-2xl font-semibold tracking-tight text-slate-900">{r.score ?? "—"}</span>
+              </div>
+              <p className="mt-1 text-sm text-slate-600">
+                {r.critical > 0 ? `${r.critical} critical` : "No critical issues"}
+                {r.warnings > 0 && ` · ${r.warnings} warnings`}
+              </p>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import type { ScanChangeSummary } from "@/lib/db/schema";
 import type { DealerStatus } from "@/components/ui";
 import { nextScheduledScanAt } from "@/lib/jobs/scheduler";
+import { dealershipSqlScope } from "./scope";
 
 export interface DealerRow {
   id: number;
@@ -75,7 +76,8 @@ function deriveStatus(r: RawRow): { status: DealerStatus; detail: string | null 
   return { status: "healthy", detail: null };
 }
 
-export async function getDealerRows(): Promise<DealerRow[]> {
+export async function getDealerRows(allowed: number[] | null = null): Promise<DealerRow[]> {
+  const scope = dealershipSqlScope(allowed, "d.id");
   const rows = await db.execute<RawRow>(sql`
     select d.id, d.name, d.brand, d.city, d.state, d.website_url, d.seo_enabled, d.news_enabled, d.is_active,
       d.website_platform, d.detected_platform, d.last_successful_scan_at,
@@ -100,6 +102,7 @@ export async function getDealerRows(): Promise<DealerRow[]> {
     left join lateral (
       select count(*) as n from news_articles n where n.dealership_id = d.id and n.relevance = 'new' and n.scope = 'dealership'
     ) nn on true
+    where ${scope}
     order by d.name asc
   `);
   return (rows as unknown as RawRow[]).map((r) => {
@@ -130,15 +133,20 @@ export async function getDealerRows(): Promise<DealerRow[]> {
   });
 }
 
-export async function getDashboardSummary(rows: DealerRow[]) {
+export async function getDashboardSummary(rows: DealerRow[], allowed: number[] | null = null) {
   const active = rows.filter((r) => r.isActive);
   const scored = active.filter((r) => r.score !== null);
+  // Each figure joins dealerships so it covers the same population as the cards
+  // above it: active dealerships this user may see, and no others.
+  const scope = dealershipSqlScope(allowed, "d.id");
   const [agg] = (await db.execute<{ last_scan: Date | string | null; failures: number; new_news: number }>(sql`
     select
-      (select max(completed_at) from seo_scans where status = 'completed') as last_scan,
-      (select count(*)::int from seo_scans where status = 'failed' and created_at > now() - interval '7 days') as failures,
+      (select max(s.completed_at) from seo_scans s join dealerships d on d.id = s.dealership_id
+        where s.status = 'completed' and d.is_active and ${scope}) as last_scan,
+      (select count(*)::int from seo_scans s join dealerships d on d.id = s.dealership_id
+        where s.status = 'failed' and s.created_at > now() - interval '7 days' and d.is_active and ${scope}) as failures,
       (select count(*)::int from news_articles n join dealerships d on d.id = n.dealership_id
-        where n.relevance = 'new' and n.scope = 'dealership' and d.is_active) as new_news
+        where n.relevance = 'new' and n.scope = 'dealership' and d.is_active and ${scope}) as new_news
   `)) as unknown as Array<{ last_scan: Date | string | null; failures: number; new_news: number }>;
   return {
     generatedAt: Date.now(),

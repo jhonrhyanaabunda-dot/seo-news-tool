@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, gte, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles } from "@/lib/db/schema";
+import { allowedFilter } from "./scope";
 
 export const NEWS_STATUSES = ["new", "relevant", "reviewed", "not_relevant"] as const;
 export type NewsStatus = (typeof NEWS_STATUSES)[number];
@@ -13,10 +14,13 @@ export function parseNewsScope(v: string | undefined): NewsScopeFilter {
   return (NEWS_SCOPES as readonly string[]).includes(v ?? "") ? (v as NewsScopeFilter) : "dealership";
 }
 
-type NewsFilters = { dealershipId?: number; status?: string; minScore?: number; scope?: NewsScopeFilter };
+/** `allowed` is the tenant restriction; `null` means the whole portfolio. */
+type NewsFilters = { dealershipId?: number; status?: string; minScore?: number; scope?: NewsScopeFilter; allowed?: number[] | null };
 
 function newsWhere(opts: NewsFilters): SQL | undefined {
   const where: SQL[] = [];
+  const scoped = allowedFilter(opts.allowed, newsArticles.dealershipId);
+  if (scoped) where.push(scoped);
   if (opts.dealershipId) where.push(eq(newsArticles.dealershipId, opts.dealershipId));
   const scope = opts.scope ?? "dealership";
   if (scope !== "all") where.push(eq(newsArticles.scope, scope));
@@ -59,8 +63,12 @@ export async function getNews(opts: NewsFilters & { page: number; pageSize: numb
   return { rows, total };
 }
 
-export async function getDealershipOptions() {
-  return db.select({ id: dealerships.id, name: dealerships.name }).from(dealerships).orderBy(dealerships.name);
+export async function getDealershipOptions(allowed: number[] | null = null) {
+  return db
+    .select({ id: dealerships.id, name: dealerships.name })
+    .from(dealerships)
+    .where(allowedFilter(allowed, dealerships.id))
+    .orderBy(dealerships.name);
 }
 
 /**
@@ -74,7 +82,7 @@ export async function getNewsByDealership(opts: NewsFilters & { perDealership: n
     db
       .select({ id: dealerships.id, name: dealerships.name, brand: dealerships.brand, city: dealerships.city, state: dealerships.state, isActive: dealerships.isActive, newsEnabled: dealerships.newsEnabled })
       .from(dealerships)
-      .where(opts.dealershipId ? eq(dealerships.id, opts.dealershipId) : undefined)
+      .where(and(allowedFilter(opts.allowed, dealerships.id), opts.dealershipId ? eq(dealerships.id, opts.dealershipId) : undefined))
       .orderBy(asc(dealerships.name)),
     db.select({ dealershipId: newsArticles.dealershipId, total: count() }).from(newsArticles).where(cond).groupBy(newsArticles.dealershipId),
   ]);

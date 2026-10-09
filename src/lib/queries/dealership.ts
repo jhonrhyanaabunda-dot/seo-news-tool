@@ -1,12 +1,17 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, count, desc, eq, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles, newsKeywords, reports, scanEvents, scanPages, seoChecks, seoIssues, seoScans } from "@/lib/db/schema";
 
-export async function getDealership(id: number) {
+/**
+ * Cached per request: the layout reads it to decide whether the route exists and
+ * the page reads it again to render, and that should be one query, not two.
+ */
+export const getDealership = cache(async (id: number) => {
   const [d] = await db.select().from(dealerships).where(eq(dealerships.id, id)).limit(1);
   return d ?? null;
-}
+});
 
 export async function getLatestScans(dealershipId: number) {
   const [latest] = await db

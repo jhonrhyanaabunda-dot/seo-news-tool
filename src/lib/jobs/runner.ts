@@ -3,13 +3,14 @@ import { randomBytes } from "node:crypto";
 import type { Job } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { logger, errorMessage, isTransientNetworkError } from "@/lib/logger";
-import { dedicatedWorkerOnline, heartbeat, touchWorker } from "@/lib/crawler/heartbeat";
+import { dedicatedWorkerOnline, heartbeat, onlineRegions, touchWorker } from "@/lib/crawler/heartbeat";
 import { runSeoScanStep } from "@/lib/seo/scan-engine";
 import { markScanFailed } from "@/lib/seo/scans";
 import { runNewsScan } from "@/lib/news/monitor";
 import { runIndustryNewsFetch } from "@/lib/news/seo-industry";
 import { sendAlertEmail, sendDigests } from "@/lib/email/reports";
 import { runMaintenance } from "./maintenance";
+import { sendPasswordResetLink } from "@/lib/auth/password-reset";
 import { markReportFailed, runReportJob } from "@/lib/reports/service";
 import { claimNextJob, completeJob, continueJob, failJobAttempt, recoverStaleJobs, type ClaimFilter, type JobType } from "./queue";
 import { scheduleDueWork } from "./scheduler";
@@ -87,7 +88,9 @@ export async function runTick(opts: { budgetMs: number; role: RunnerRole; worker
   }
 
   try {
-    const dead = await recoverStaleJobs(STALE_AFTER_MS);
+    // A scan interrupted while its crawler was offline is requeued intact; see
+    // recoverStaleJobs. Only genuine faults spend an attempt.
+    const dead = await recoverStaleJobs(STALE_AFTER_MS, await onlineRegions());
     for (const job of dead) {
       if (job.type === "seo_scan" && typeof job.payload.scanId === "number") {
         await markScanFailed(job.payload.scanId, "The scan was interrupted repeatedly and could not be completed.");
@@ -157,6 +160,17 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
       case "alert": {
         const r = await sendAlertEmail(Number(job.payload.alertId));
         await completeJob(job.id, r);
+        return "completed";
+      }
+      case "password_reset": {
+        // Retry path only: the first attempt is made inline while the person is
+        // still on the page. Each retry issues a brand-new link, because the
+        // previous token is unrecoverable by design and the failed one never
+        // reached anybody. Throwing lets the queue count the attempt and back
+        // off rather than silently marking the job done.
+        const r = await sendPasswordResetLink(Number(job.payload.userId));
+        if (r === "failed") throw new Error("Password reset email failed to send.");
+        await completeJob(job.id, { userId: Number(job.payload.userId), result: r });
         return "completed";
       }
       case "maintenance": {
