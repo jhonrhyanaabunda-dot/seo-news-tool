@@ -278,6 +278,7 @@ body {
   background: #fff;
 }
 
+.doc-actions { display: flex; justify-content: flex-end; margin-bottom: 1.25rem; }
 .doc-cover { border-bottom: 2px solid var(--doc-ink); padding-bottom: 1.5rem; margin-bottom: 2rem; }
 .doc-brand { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.75rem; }
 .doc-logo { height: 1.9rem; width: auto; }
@@ -354,6 +355,8 @@ body {
   .doc-keep, .doc-opp, .doc-kpis, .doc-chart, .doc-table { break-inside: avoid; }
   .doc-table thead { display: table-header-group; }
   .doc-table tr { break-inside: avoid; }
+  /* Controls belong to the screen, never to the paper. */
+  .doc-actions { display: none; }
   .doc-cover { break-after: page; padding-bottom: 1rem; }
   .doc-body, .doc-note, .doc-opp-line { orphans: 3; widows: 3; }
   .doc-footer { break-inside: avoid; }

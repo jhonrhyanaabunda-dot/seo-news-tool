@@ -30,8 +30,13 @@ export interface DigestDealer {
   newWarnings: number;
   resolved: number;
   newNews: number;
-  newsHeadlines: Array<{ title: string; url: string; source: string | null }>;
-  topIssues: Array<{ label: string; count: number; severity: string }>;
+  newsHeadlines: Array<{ title: string; url: string; source: string | null; publishedAt: Date | null; publishedPrecision: string | null }>;
+  /** The product's own priority ordering, shared with the dashboard and the report. */
+  topIssues: Array<{ label: string; priority: string; scope: string }>;
+  /** Total open opportunities, so the email can say what it is not showing. */
+  openOpportunities: number;
+  /** False once this scan's individual findings have been pruned. */
+  detailsRetained: boolean;
   changes: string[];
   siteAvailable: boolean | null;
   /** Scan status label (Completed, Partially blocked, Blocked, …). */
@@ -81,23 +86,38 @@ function stat(label: string, value: string | number, color = C.text) {
     <div style="font-size:11px;color:${C.muted};text-transform:uppercase;letter-spacing:.04em;">${label}</div></td>`;
 }
 
-function dealerBlock(d: DigestDealer): string {
+function dealerBlock(d: DigestDealer, timeZone: string): string {
   const delta =
     d.scoreDelta !== null && d.scoreDelta !== 0
       ? ` <span style="font-size:13px;color:${d.scoreDelta > 0 ? C.good : C.critical};">(${d.scoreDelta > 0 ? "+" : ""}${d.scoreDelta})</span>`
       : "";
   const scoreText = d.siteAvailable === false ? `<span style="color:${C.critical};">Website unavailable</span>` : d.score === null ? "Not scored yet" : `${d.score}/100${delta}`;
+  // Priority is carried by the word as well as the colour, so the list still
+  // reads in a plain-text client or on a mono display.
+  const priorityColour: Record<string, string> = { CRITICAL: C.critical, HIGH: C.warning, MEDIUM: C.warning, LOW: C.muted };
+  const more = d.openOpportunities - d.topIssues.length;
+  // Counts without findings behind them must say so; the totals are still exact.
+  const pruned =
+    !d.detailsRetained && d.critical + d.warnings > 0
+      ? `<div style="margin-top:12px;font-size:13px;color:${C.muted};">Detailed records for this check are no longer retained. The totals above remain accurate, but the individual findings are not available to list here.</div>`
+      : "";
   const issues = d.topIssues.length
-    ? `<div style="margin-top:12px;font-size:13px;font-weight:600;">Top issues</div><ol style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.6;">${d.topIssues
-        .map((i) => `<li><span style="color:${i.severity === "critical" ? C.critical : C.warning};">${escapeHtml(i.label)}</span> <span style="color:${C.muted};">(${i.count} found)</span></li>`)
-        .join("")}</ol>`
+    ? `<div style="margin-top:12px;font-size:13px;font-weight:600;">What to do next</div><ol style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.6;">${d.topIssues
+        .map(
+          (i) =>
+            `<li><span style="color:${priorityColour[i.priority] ?? C.muted};font-weight:600;">${escapeHtml(priorityWord(i.priority))}</span> — ${escapeHtml(i.label)} <span style="color:${C.muted};">(${escapeHtml(i.scope)})</span></li>`,
+        )
+        .join("")}</ol>${more > 0 ? `<div style="margin-top:4px;font-size:12px;color:${C.muted};">and ${more} more in the dashboard</div>` : ""}`
     : "";
   const changes = d.changes.length
     ? `<div style="margin-top:12px;font-size:13px;font-weight:600;">Important changes</div><ul style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.6;">${d.changes.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>`
     : "";
   const news = d.newsHeadlines.length
     ? `<div style="margin-top:12px;font-size:13px;font-weight:600;">New relevant news</div><ul style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.6;">${d.newsHeadlines
-        .map((n) => `<li><a href="${escapeHtml(n.url)}" style="color:${C.accent};">${escapeHtml(n.title)}</a>${n.source ? ` <span style="color:${C.muted};">— ${escapeHtml(n.source)}</span>` : ""}</li>`)
+        .map((n) => {
+          const meta = [n.source, storyDate(n.publishedAt, timeZone)].filter(Boolean).join(" · ");
+          return `<li><a href="${escapeHtml(n.url)}" style="color:${C.accent};">${escapeHtml(n.title)}</a>${meta ? ` <span style="color:${C.muted};">— ${escapeHtml(meta)}</span>` : ""}</li>`;
+        })
         .join("")}</ul>`
     : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid ${C.border};border-radius:8px;"><tr><td style="padding:16px 18px;">
@@ -121,7 +141,7 @@ function dealerBlock(d: DigestDealer): string {
     ${stat("Resolved", d.resolved, d.resolved ? C.good : C.text)}
     ${stat("New news", d.newNews)}
   </tr></table>
-  ${issues}${changes}${news}
+  ${pruned}${issues}${changes}${news}
   <div style="margin-top:12px;"><a href="${escapeHtml(d.reportUrl)}" style="font-size:13px;color:${C.accent};">Open full report →</a></div>
 </td></tr></table>`;
 }
@@ -137,6 +157,11 @@ export interface DigestSeoStory {
 
 const NEWSLETTER_FOOTER =
   "You receive this weekly newsletter because your address is listed as a recipient in the A3 SEO &amp; News Monitor. SEO news is taken from the publications’ public RSS feeds; follow a headline to read the full article on the publisher’s site.";
+
+/** "CRITICAL" → "Critical", so the priority reads as a word rather than a shout. */
+function priorityWord(p: string): string {
+  return p.charAt(0) + p.slice(1).toLowerCase();
+}
 
 function storyDate(d: Date | null, timeZone: string) {
   return d ? new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(d) : null;
@@ -192,7 +217,7 @@ export function renderDigestEmail(input: {
   const seoNewsUrl = `${input.dashboardUrl.replace(/\/$/, "")}/seo-news`;
   const dealersHeading =
     weekly && input.dealers.length ? `<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${C.accent};margin:0 0 12px;">Your dealerships this week</div>` : "";
-  const body = `<p style="margin:0 0 18px;font-size:14px;color:${C.muted};">${escapeHtml(input.periodLabel)}</p>${seoStoriesBlock(stories, tz, seoNewsUrl)}${dealersHeading}${changed.map(dealerBlock).join("")}${unchangedHtml}`;
+  const body = `<p style="margin:0 0 18px;font-size:14px;color:${C.muted};">${escapeHtml(input.periodLabel)}</p>${seoStoriesBlock(stories, tz, seoNewsUrl)}${dealersHeading}${changed.map((d) => dealerBlock(d, tz)).join("")}${unchangedHtml}`;
 
   const text = [
     title,
@@ -222,9 +247,15 @@ export function renderDigestEmail(input: {
       `Warnings: ${d.warnings} (new: ${d.newWarnings})`,
       `Resolved: ${d.resolved}`,
       `New News: ${d.newNews}`,
-      ...(d.topIssues.length ? ["Top Issues:", ...d.topIssues.map((i, n) => `${n + 1}. ${i.label} (${i.count})`)] : []),
+      ...(!d.detailsRetained && d.critical + d.warnings > 0
+        ? ["Detailed records for this check are no longer retained. The totals above remain accurate, but the individual findings are not available to list here."]
+        : []),
+      ...(d.topIssues.length ? ["What to do next:", ...d.topIssues.map((i, n) => `${n + 1}. [${priorityWord(i.priority)}] ${i.label} (${i.scope})`)] : []),
+      ...(d.openOpportunities > d.topIssues.length ? [`   and ${d.openOpportunities - d.topIssues.length} more in the dashboard`] : []),
       ...(d.changes.length ? ["Important changes:", ...d.changes.map((c) => `- ${c}`)] : []),
-      ...(d.newsHeadlines.length ? ["New relevant news:", ...d.newsHeadlines.map((h) => `- ${h.title} ${h.url}`)] : []),
+      ...(d.newsHeadlines.length
+        ? ["New relevant news:", ...d.newsHeadlines.map((h) => `- ${h.title}${[h.source, storyDate(h.publishedAt, tz)].filter(Boolean).length ? ` (${[h.source, storyDate(h.publishedAt, tz)].filter(Boolean).join(" · ")})` : ""}\n  ${h.url}`)]
+        : []),
       `Report: ${d.reportUrl}`,
       "",
     ]),

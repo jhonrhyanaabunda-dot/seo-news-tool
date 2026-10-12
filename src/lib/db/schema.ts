@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
+  customType,
   boolean,
   index,
   integer,
@@ -15,6 +16,9 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+
+/** Raw bytes. Only the report transport buffer uses this. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 /* ────────────────────────────── Enums ─────────────────────────────── */
 
@@ -32,7 +36,7 @@ export const checkStatusEnum = pgEnum("check_status", ["pass", "warn", "fail", "
 export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_relevant", "reviewed"]);
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
-export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset"]);
+export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf"]);
 export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
@@ -803,6 +807,44 @@ export const jobs = pgTable(
       .on(t.dedupeKey)
       .where(sql`${t.status} in ('queued', 'running')`),
   ],
+);
+
+/**
+ * A rendered report PDF, in transit from the worker to the person who asked
+ * for it.
+ *
+ * This is a transport buffer, not a report archive. The Mac worker polls for
+ * work and has no inbound port, so it cannot hand bytes back over HTTP; and
+ * there is no object storage. The bytes therefore rest here briefly between
+ * "the worker finished" and "the browser downloaded it", and are deleted on
+ * delivery, with maintenance sweeping anything a cancelled download left
+ * behind. Nothing reads this table to reconstruct history — the report is
+ * always regenerated from the scan.
+ */
+export const reportRenders = pgTable(
+  "report_renders",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** Identifies one request, so a double-click reuses the render in flight. */
+    requestKey: varchar("request_key", { length: 120 }).notNull(),
+    status: varchar("status", { length: 20 }).$type<"pending" | "ready" | "failed">().notNull().default("pending"),
+    /** Only the hash of the single-purpose render token, never the token. */
+    tokenHash: varchar("token_hash", { length: 128 }).notNull(),
+    pdf: bytea("pdf"),
+    bytes: integer("bytes"),
+    filename: varchar("filename", { length: 300 }),
+    error: text("error"),
+    requestedBy: integer("requested_by"),
+    durationMs: integer("duration_ms"),
+    /** After this the row is useless: the token is dead and the bytes are swept. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("report_renders_request_idx").on(t.requestKey), index("report_renders_expiry_idx").on(t.expiresAt)],
 );
 
 export const settings = pgTable("settings", {

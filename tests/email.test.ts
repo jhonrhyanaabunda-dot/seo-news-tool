@@ -14,12 +14,12 @@ test("digest email renders required sections", () => {
     kind: "daily",
     periodLabel: "Changes in the last 24 hours",
     dashboardUrl: "https://app",
-    dealers: [{ id: 1, name: "BMW of Fort Walton Beach", brand: "BMW", score: 87, scoreDelta: -3, critical: 2, warnings: 5, newCritical: 1, newWarnings: 2, resolved: 3, newNews: 4, newsHeadlines: [], topIssues: [{ label: "Missing meta descriptions", count: 6, severity: "warning" }], changes: [], siteAvailable: true, scanStatus: "Partially blocked", notEvaluated: 4, limitedCheck: false, lastScanAt: null, reportUrl: "https://app/d/1", hasChanges: true }],
+    dealers: [{ id: 1, name: "BMW of Fort Walton Beach", brand: "BMW", score: 87, scoreDelta: -3, critical: 2, warnings: 5, newCritical: 1, newWarnings: 2, resolved: 3, newNews: 4, newsHeadlines: [], topIssues: [{ label: "Missing meta descriptions", priority: "HIGH", scope: "6 pages affected" }], openOpportunities: 1, detailsRetained: true, changes: [], siteAvailable: true, scanStatus: "Partially blocked", notEvaluated: 4, limitedCheck: false, lastScanAt: null, reportUrl: "https://app/d/1", hasChanges: true }],
   });
   assert.match(r.text, /SEO Score: 87\/100/);
   assert.match(r.text, /Critical Issues: 2/);
   assert.match(r.text, /Resolved: 3/);
-  assert.match(r.text, /1\. Missing meta descriptions/);
+  assert.match(r.text, /1\. \[High\] Missing meta descriptions \(6 pages affected\)/);
   assert.match(r.text, /View Dashboard: https:\/\/app/);
   assert.match(r.text, /Scan status: Partially blocked/);
   assert.match(r.text, /Not evaluated \(access restricted, NOT SEO problems\): 4 page/);

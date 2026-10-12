@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { emailConfigProblem } from "@/lib/email/config";
-import { getCrawlers, getEmailRecipientHealth, getJobOverview, getRecentEmails, getRecentScanFailures, getSystemLogs } from "@/lib/queries/system";
+import { getCrawlers, getEmailOutcomeCounts, getEmailRecipientHealth, getJobOverview, getRecentEmails, getRecentScanFailures, getSystemLogs, type EmailOutcome } from "@/lib/queries/system";
 import { allRegions } from "@/lib/crawler/regions";
 import { ONLINE_WINDOW_MINUTES } from "@/lib/crawler/heartbeat";
 import { ALL_PROVIDERS, activeProviders } from "@/lib/news/providers";
@@ -13,7 +13,7 @@ import { aiReportsConfigured } from "@/lib/reports/ai";
 import { aiReportsUsedThisMonth } from "@/lib/reports/service";
 import { retryJobAction, runTickNowAction } from "@/app/actions/settings";
 import { SubmitButton } from "@/components/client/submit-button";
-import { Badge, Card, Notice, PageHeader, TableWrap } from "@/components/ui";
+import { Badge, Card, Notice, PageHeader, TableWrap, cn } from "@/components/ui";
 import { fmtDateTime, fmtRelative } from "@/components/format";
 
 export const metadata: Metadata = { title: "System" };
@@ -21,15 +21,18 @@ export const dynamic = "force-dynamic";
 
 const JOB_LABEL: Record<string, string> = { seo_scan: "SEO scan", news_scan: "News check", digest: "Email summary", alert: "Critical alert email", maintenance: "Maintenance", report: "SEO report" };
 
-export default async function SystemPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
+export default async function SystemPage({ searchParams }: { searchParams: Promise<{ notice?: string; emails?: string }> }) {
   await requireAdmin();
-  const { notice } = await searchParams;
+  const { notice, emails: emailsParam } = await searchParams;
+  const OUTCOMES = ["accepted", "failed", "retrying", "skipped", "queued"] as const;
+  const emailFilter = OUTCOMES.includes(emailsParam as (typeof OUTCOMES)[number]) ? (emailsParam as EmailOutcome) : undefined;
   const tz = env().APP_TIMEZONE;
-  const [jobs, failures, logs, emails, crawlers, aiUsed, recipients] = await Promise.all([
+  const [jobs, failures, logs, emails, emailCounts, crawlers, aiUsed, recipients] = await Promise.all([
     getJobOverview(),
     getRecentScanFailures(),
     getSystemLogs(),
-    getRecentEmails(),
+    getRecentEmails(50, emailFilter),
+    getEmailOutcomeCounts(),
     getCrawlers(),
     aiReportsUsedThisMonth(),
     getEmailRecipientHealth(),
@@ -294,13 +297,41 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
         <section>
           <h2 className="mb-2 text-base font-semibold">Email log</h2>
+          {/* A failure must be visible without scrolling a 50-row table. */}
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            {(
+              [
+                ["all", "All", emailCounts.accepted + emailCounts.failed + emailCounts.retrying + emailCounts.skipped + emailCounts.queued],
+                ["failed", "Failed", emailCounts.failed],
+                ["retrying", "Retry pending", emailCounts.retrying],
+                ["skipped", "Skipped", emailCounts.skipped],
+                ["accepted", "Accepted", emailCounts.accepted],
+              ] as Array<[string, string, number]>
+            ).map(([key, label, n]) => (
+              <Link
+                key={key}
+                href={key === "all" ? "/admin/system" : `/admin/system?emails=${key}`}
+                aria-current={(emailFilter ?? "all") === key ? "true" : undefined}
+                className={cn(
+                  "rounded-full px-3 py-1 ring-1 ring-inset",
+                  (emailFilter ?? "all") === key ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50",
+                  key === "failed" && n > 0 && (emailFilter ?? "all") !== key && "text-red-800 ring-red-300",
+                )}
+              >
+                {label} {n}
+              </Link>
+            ))}
+          </div>
           <TableWrap caption="Recent emails">
             <thead>
               <tr>
                 <th scope="col">Type</th>
                 <th scope="col">To</th>
                 <th scope="col">Subject</th>
-                <th scope="col">Status</th>
+                {/* "Sent" would overstate what SMTP can tell us. */}
+                <th scope="col" title="SMTP can confirm the provider accepted a message, not that it reached an inbox">
+                  Outcome
+                </th>
                 <th scope="col">When</th>
               </tr>
             </thead>
@@ -318,18 +349,23 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                   <td>{m.recipients.join(", ")}</td>
                   <td className="max-w-md">{m.subject}</td>
                   <td>
-                    {m.status === "sent" && m.providerMessageId?.startsWith("console-") ? (
-                      <span title="EMAIL_PROVIDER=console: written to the server log, not delivered">
-                        <Badge tone="warning">Logged only</Badge>
-                      </span>
-                    ) : m.status === "sent" ? (
-                      <Badge tone="success">Sent</Badge>
-                    ) : m.status === "failed" ? (
-                      <span title={m.error ?? undefined}>
-                        <Badge tone="critical">Failed</Badge>
-                      </span>
+                    {m.outcome === "accepted" && m.providerMessageId?.startsWith("console-") ? (
+                      <Badge tone="warning">Logged only</Badge>
+                    ) : m.outcome === "accepted" ? (
+                      <Badge tone="success">Accepted by provider</Badge>
+                    ) : m.outcome === "retrying" ? (
+                      <Badge tone="warning">Retry pending</Badge>
+                    ) : m.outcome === "failed" ? (
+                      <Badge tone="critical">Failed</Badge>
+                    ) : m.outcome === "skipped" ? (
+                      <Badge>Skipped</Badge>
                     ) : (
-                      <Badge>{m.status}</Badge>
+                      <Badge>Queued</Badge>
+                    )}
+                    {/* The reason belongs in the row: a tooltip is invisible on a
+                        phone and to anyone using a keyboard. */}
+                    {m.error && (m.outcome === "failed" || m.outcome === "retrying" || m.outcome === "skipped") && (
+                      <div className="mt-1 max-w-md text-xs text-slate-600">{m.error}</div>
                     )}
                   </td>
                   <td className="whitespace-nowrap">{fmtDateTime(m.sentAt ?? m.createdAt, tz)}</td>

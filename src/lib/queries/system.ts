@@ -58,8 +58,56 @@ export async function getSystemLogs(limit = 100) {
   return db.select().from(systemLogs).orderBy(desc(systemLogs.createdAt)).limit(limit);
 }
 
-export async function getRecentEmails(limit = 50) {
-  return db.select().from(emailReports).orderBy(desc(emailReports.createdAt)).limit(limit);
+/** What `status` really means, once a pending retry is taken into account. */
+export type EmailOutcome = "accepted" | "failed" | "retrying" | "skipped" | "queued";
+
+/**
+ * Recent delivery attempts, each with an outcome the page can state honestly.
+ *
+ * Two distinctions matter here. First, `sent` means the provider *accepted* the
+ * message — SMTP cannot confirm it reached an inbox — so it is reported as
+ * "accepted", never as delivered. Second, a row sitting at `failed` while its
+ * job is still queued is not a final outcome; it is a retry in progress.
+ *
+ * The retry is established, not guessed: every retryable email is keyed on its
+ * job's dedupe key plus a per-recipient suffix (`alert:12` → `alert:12:a@b.c`),
+ * so a live job whose key prefixes this row's key is that row's next attempt.
+ */
+export async function getRecentEmails(limit = 50, status?: EmailOutcome) {
+  const rows = await db
+    .select({
+      email: emailReports,
+      retryPending: sql<boolean>`exists (
+        select 1 from ${jobs} j
+        where j.status in ('queued', 'running')
+          and ${emailReports.dedupeKey} like j.dedupe_key || ':%'
+      )`,
+    })
+    .from(emailReports)
+    .orderBy(desc(emailReports.createdAt))
+    .limit(status ? 400 : limit);
+
+  const mapped = rows.map((r) => ({
+    ...r.email,
+    outcome: (r.email.status === "sent"
+      ? "accepted"
+      : r.email.status === "skipped"
+        ? "skipped"
+        : r.email.status === "pending"
+          ? "queued"
+          : r.retryPending
+            ? "retrying"
+            : "failed") as EmailOutcome,
+  }));
+  return status ? mapped.filter((m) => m.outcome === status).slice(0, limit) : mapped;
+}
+
+/** Counts for the delivery summary, so a failure is visible without scrolling. */
+export async function getEmailOutcomeCounts(): Promise<Record<EmailOutcome, number>> {
+  const all = await getRecentEmails(400);
+  const out: Record<EmailOutcome, number> = { accepted: 0, failed: 0, retrying: 0, skipped: 0, queued: 0 };
+  for (const e of all) out[e.outcome]++;
+  return out;
 }
 
 /** The error from the most recent failed test email, to show where the test was sent from. */

@@ -19,7 +19,9 @@ import { scheduleDueWork } from "./scheduler";
 const MIN_REMAINING_MS = 30_000;
 /** A running job not heard from for this long is assumed dead (function killed). */
 const STALE_AFTER_MS = 15 * 60_000;
-const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news"];
+const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf"];
+/** Needs Chromium, so only a runner that crawls may claim it. */
+const BROWSER_TYPES: JobType[] = ["seo_scan", "report_pdf"];
 
 /**
  * Who is running the tick:
@@ -47,7 +49,13 @@ function resolveRunner(role: RunnerRole): { region: string; filter: ClaimFilter;
   const defaultRegion = e.DEFAULT_CRAWLER_REGION;
   if (role === "vercel") {
     const crawls = e.CRAWLER_MODE === "vercel";
-    return { region: defaultRegion, crawls, filter: { types: crawls ? ALL_TYPES : ALL_TYPES.filter((t) => t !== "seo_scan"), regions: crawls ? [defaultRegion] : [], defaultRegion } };
+    return {
+      region: defaultRegion,
+      crawls,
+      // Without a browser this runner must not claim work it cannot finish;
+      // leaving it queued lets the crawler worker pick it up instead.
+      filter: { types: crawls ? ALL_TYPES : ALL_TYPES.filter((t) => !BROWSER_TYPES.includes(t)), regions: crawls ? [defaultRegion] : [], defaultRegion },
+    };
   }
   const region = (role === "worker" ? e.WORKER_REGION : undefined) ?? defaultRegion;
   const wanted = e.WORKER_JOB_TYPES?.split(",").map((s) => s.trim()).filter((s): s is JobType => (ALL_TYPES as string[]).includes(s));
@@ -171,6 +179,14 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
         const r = await sendPasswordResetLink(Number(job.payload.userId));
         if (r === "failed") throw new Error("Password reset email failed to send.");
         await completeJob(job.id, { userId: Number(job.payload.userId), result: r });
+        return "completed";
+      }
+      case "report_pdf": {
+        // Claimed only by a runner that crawls (see BROWSER_TYPES), so a
+        // browser is available here.
+        const { runReportPdfJob } = await import("@/lib/reports/pdf");
+        const r = await runReportPdfJob(Number(job.payload.renderId), String(job.payload.token ?? ""));
+        await completeJob(job.id, r);
         return "completed";
       }
       case "maintenance": {

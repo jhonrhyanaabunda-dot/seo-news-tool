@@ -332,7 +332,7 @@ Vercel dashboard ─► API / server actions ─► jobs queue (PostgreSQL) ─�
   fly deploy --config deploy/fly.toml -a a3-crawler-us-east
   # US-Central: --region ord (or dfw), WORKER_REGION=us-central · US-West: --region sjc (or lax), WORKER_REGION=us-west
   ```
-  Railway (us-east4 / us-west2) and Render (Virginia / Ohio / Oregon) work the same way: deploy `worker/Dockerfile` with `WORKER_REGION` and the app's environment variables. `WORKER_JOB_TYPES=seo_scan` makes a crawl-only worker. Then set `CRAWLER_MODE=worker` on Vercel.
+  Railway (us-east4 / us-west2) and Render (Virginia / Ohio / Oregon) work the same way: deploy `worker/Dockerfile` with `WORKER_REGION` and the app's environment variables. `WORKER_JOB_TYPES=seo_scan,report_pdf` makes a worker that crawls and renders report PDFs — both need Chromium, so a Vercel tick never claims either. Then set `CRAWLER_MODE=worker` on Vercel.
 * **Capacity:** each worker processes `JOB_CONCURRENCY` scans in parallel (different websites; the same site is never crawled in parallel). Add workers or replicas per region as the portfolio grows; `SKIP LOCKED` guarantees each job runs once.
 
 ## 12. Environment variables
@@ -397,7 +397,7 @@ User (Philippines) → Vercel (Next.js dashboard + API + cron) → Postgres job 
 
 1. **Database:** managed PostgreSQL (Neon, Supabase, RDS). Note the pooled URL (Vercel) and direct URL (migrations).
 2. **Vercel:** import the repo, set the variables from [section 5](#5-deploying-to-vercel) with **`CRAWLER_MODE=worker`**, deploy (migrations run in the build).
-3. **U.S. worker** — any container host in a U.S. region, using `worker/Dockerfile` (includes Chromium) and the **same** `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET`, `APP_URL`, plus `WORKER_REGION=us-east`, `WORKER_JOB_TYPES=seo_scan`, `BROWSER_RENDERING=fallback`:
+3. **U.S. worker** — any container host in a U.S. region, using `worker/Dockerfile` (includes Chromium) and the **same** `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET`, `APP_URL`, plus `WORKER_REGION=us-east`, `WORKER_JOB_TYPES=seo_scan,report_pdf`, `BROWSER_RENDERING=fallback`:
    * **Fly.io:** `deploy/fly.toml` (commands in [section 11](#11-regional-crawler-workers)).
    * **Render:** New → Blueprint → `deploy/render.yaml` (region `virginia`), then fill in the secret values.
    * **Railway / AWS ECS / Google Cloud Run (always-on) / DigitalOcean:** build `worker/Dockerfile` from the repository root, choose a U.S. region, set the variables above, no inbound port needed.

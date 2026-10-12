@@ -201,6 +201,34 @@ async function evictIdleContexts(): Promise<void> {
   }
 }
 
+/**
+ * Run `fn` with a page in a throwaway context on the shared browser.
+ *
+ * Used for printing our own report. It deliberately does not reuse the
+ * per-host crawl contexts: those carry cookies a crawled site handed us, and
+ * the report has nothing to do with them. It does share the browser and the
+ * concurrency gate, so printing a report cannot launch a second Chromium or
+ * push the machine past BROWSER_MAX_CONCURRENCY while a scan is running.
+ *
+ * The page and context are always closed, including when `fn` throws, so a
+ * failed render cannot leak a browser process.
+ */
+export async function withBrowserPage<T>(fn: (page: PWPage) => Promise<T>, timeoutMs: number): Promise<T> {
+  await concurrencyGate().acquire();
+  let context: PWBrowserContext | null = null;
+  try {
+    const browser = await getBrowser();
+    context = await browser.newContext({ userAgent: env().CRAWLER_USER_AGENT, viewport: { width: 1280, height: 1600 } });
+    context.setDefaultTimeout(timeoutMs);
+    const page = await context.newPage();
+    return await fn(page);
+  } finally {
+    if (context) await context.close().catch(() => {});
+    concurrencyGate().release();
+    scheduleIdleClose();
+  }
+}
+
 /** Close the shared browser and every per-host context (on idle and on worker shutdown). */
 export async function closeBrowser(): Promise<void> {
   if (idleTimer) {

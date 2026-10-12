@@ -3,12 +3,14 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessDealership, requireDealershipAccess } from "@/lib/auth/tenant";
+import { dealershipForRenderToken } from "@/lib/reports/render-token";
 import { env } from "@/lib/env";
 import { getClientDashboard } from "@/lib/queries/client-dashboard";
 import { getOpportunities } from "@/lib/queries/client-opportunities";
 import { buildExecutiveSummary } from "@/lib/reports/print-summary";
 import { countByPriority, scopeLabel, type Opportunity } from "@/lib/seo/opportunity";
 import { ScoreHistoryChart } from "@/components/charts";
+import { DownloadReportButton } from "@/components/client/download-report";
 import { fmtDate, fmtDateTime } from "@/components/format";
 
 export const dynamic = "force-dynamic";
@@ -25,13 +27,18 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: data ? `SEO report — ${data.dealership.name}` : "SEO report" };
 }
 
-export default async function PrintReportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PrintReportPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ rt?: string }> }) {
   const { id } = await params;
+  const { rt } = await searchParams;
   const dealershipId = Number(id);
   if (!Number.isInteger(dealershipId) || dealershipId <= 0) notFound();
-  // Same guard as the dashboard and the opportunities page: a report is never
-  // reachable by editing the id in the address bar.
-  await requireDealershipAccess(dealershipId);
+  // Two ways in, both decided server-side. A person arrives with a session and
+  // the usual tenant guard; the rendering worker arrives with a single-purpose
+  // key that authorises exactly this dealership's report for a few minutes and
+  // nothing else. The key is never a substitute for a session anywhere else in
+  // the application.
+  const renderedByWorker = rt ? (await dealershipForRenderToken(rt, dealershipId)) === dealershipId : false;
+  if (!renderedByWorker) await requireDealershipAccess(dealershipId);
 
   const data = await getClientDashboard(dealershipId);
   if (!data) notFound();
@@ -61,6 +68,10 @@ export default async function PrintReportPage({ params }: { params: Promise<{ id
   return (
     <div className="print-doc">
       {/* ── Cover ───────────────────────────────────────────────────── */}
+      <div className="doc-actions">
+        <DownloadReportButton dealershipId={dealershipId} />
+      </div>
+
       <header className="doc-cover">
         <div className="doc-brand">
           <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="doc-logo" />

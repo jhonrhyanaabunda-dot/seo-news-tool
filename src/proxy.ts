@@ -14,8 +14,12 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+  // The report renderer has no cookie, only a single-purpose key. This edge
+  // layer just lets the request reach the page; the key itself is verified
+  // against the database there, and authorises one dealership's report only.
+  const hasRenderKey = pathname.startsWith("/report/") && Boolean(request.nextUrl.searchParams.get("rt"));
 
-  if (!isPublic && !hasSession) {
+  if (!isPublic && !hasSession && !hasRenderKey) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + request.nextUrl.search)}` : "";

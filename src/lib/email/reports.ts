@@ -1,16 +1,20 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, isNotNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { alerts, dealerships, newsArticles, seoIssues, seoScans, type Dealership } from "@/lib/db/schema";
+import { alerts, dealerships, newsArticles, seoScans, type Dealership } from "@/lib/db/schema";
 import { diffFingerprints } from "@/lib/changes/detect";
 import { env } from "@/lib/env";
-import { CHECKS_BY_KEY } from "@/lib/seo/checks/config";
+import { getOpportunities } from "@/lib/queries/client-opportunities";
+import { scopeLabel } from "@/lib/seo/opportunity";
 import { getSettings, type AppSettings } from "@/lib/settings";
 import { recordSkippedNoRecipients, sendTrackedEmail } from "./send";
 import { sameWebsite } from "@/lib/seo/site-identity";
 import { renderAlertEmail, renderDigestEmail, type DigestDealer } from "./templates";
 import { OUTCOME_META } from "@/lib/seo/outcome";
 import { getTopSeoStories } from "@/lib/news/seo-industry";
+
+/** Enough to act on in an inbox; the rest are a click away. */
+const TOP_ISSUES_IN_DIGEST = 3;
 
 const dashboardUrl = () => env().APP_URL.replace(/\/$/, "");
 const reportUrl = (id: number) => `${dashboardUrl()}/dealerships/${id}`;
@@ -54,18 +58,24 @@ export async function buildDealerDigest(d: Dealership, periodStart: Date, s: App
     if (latest.score !== null && baseline.score !== null) scoreDelta = latest.score - baseline.score;
   }
 
-  const topIssues = latest
-    ? await db
-        .select({ checkKey: seoIssues.checkKey, severity: seoIssues.severity, count: sql<number>`count(*)::int` })
-        .from(seoIssues)
-        .where(and(eq(seoIssues.scanId, latest.id), inArray(seoIssues.severity, ["critical", "warning"])))
-        .groupBy(seoIssues.checkKey, seoIssues.severity)
-        .orderBy(sql`case when ${seoIssues.severity} = 'critical' then 0 else 1 end`, desc(sql`count(*)`))
-        .limit(3)
-    : [];
+  // The same ordered list the dashboard, the opportunities page and the PDF
+  // use. Email used to sort by severity and count, which put a different issue
+  // first from the one a manager then saw on screen.
+  const opportunities = latest ? await getOpportunities(latest.id) : [];
+  const topIssues = opportunities.slice(0, TOP_ISSUES_IN_DIGEST);
 
   const news = await db
-    .select({ id: newsArticles.id, title: newsArticles.title, url: newsArticles.url, source: newsArticles.source })
+    .select({
+      id: newsArticles.id,
+      title: newsArticles.title,
+      url: newsArticles.url,
+      source: newsArticles.source,
+      // The publisher's own date. `detectedAt` is when A3 first saw the
+      // article and is deliberately not shown: presenting it as a publication
+      // date would make old news look current.
+      publishedAt: newsArticles.publishedAt,
+      publishedPrecision: newsArticles.publishedPrecision,
+    })
     .from(newsArticles)
     .where(
       and(
@@ -107,7 +117,12 @@ export async function buildDealerDigest(d: Dealership, periodStart: Date, s: App
     resolved,
     newNews: news.length,
     newsHeadlines: news.slice(0, 3),
-    topIssues: topIssues.map((t) => ({ label: CHECKS_BY_KEY[t.checkKey]?.problem ?? t.checkKey, count: t.count, severity: t.severity })),
+    topIssues: topIssues.map((o) => ({ label: o.title, priority: o.priority, scope: scopeLabel(o) })),
+    openOpportunities: opportunities.length,
+    // Housekeeping keeps individual findings for recent scans only. Without
+    // this the email would show real counts beside an empty list, which reads
+    // as "nothing to do" rather than "the detail is no longer stored".
+    detailsRetained: latest?.detailsRetained ?? true,
     changes: periodAlerts.map((a) => a.title.replace(`${d.name}: `, "")),
     siteAvailable,
     scanStatus: latest?.outcome ? OUTCOME_META[latest.outcome].label : null,

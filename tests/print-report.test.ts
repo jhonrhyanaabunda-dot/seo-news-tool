@@ -138,7 +138,11 @@ test("no raw scanner output or internal identifiers reach the document", () => {
   const src = read(REPORT);
   // Alerts carry URL lists and were deliberately kept out; ids are internal.
   assert.ok(!/data\.activity/.test(src), "recent-activity messages are not reproduced in the report");
-  assert.ok(!/scan\.id\}|report-id|dealershipId\}/.test(src.replace(/getOpportunities\(scan\.id\)/g, "")), "no internal ids printed");
+  // Ids may be passed as props or used to query; what must never happen is one
+  // being *rendered* as text in the document.
+  const rendered = [...src.matchAll(/>\s*\{([^}]+)\}\s*</g)].map((m) => m[1]);
+  const printsAnId = rendered.filter((e) => /\b(scan\.id|row\.id|renderId|dealershipId|\bid\b)\s*$/.test(e.trim()));
+  assert.deepEqual(printsAnId, [], `these render an internal id as text: ${printsAnId.join(", ")}`);
 });
 
 test("the print stylesheet controls page breaks", () => {
