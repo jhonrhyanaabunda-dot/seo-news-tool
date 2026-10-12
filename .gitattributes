@@ -1,0 +1,9 @@
+# Keep LF everywhere. Several tests read source files and match "\n}\n";
+# a Windows checkout with CRLF endings fails them (4 tests on a fresh clone).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
