@@ -46,6 +46,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               Provider: <strong>{e.EMAIL_PROVIDER}</strong>
             </p>
             <p className="mt-1 break-words text-sm text-slate-600">From: {e.EMAIL_FROM}</p>
+            <p className="break-words text-sm text-slate-600">Replies go to: {e.EMAIL_REPLY_TO ?? "the sending mailbox (EMAIL_REPLY_TO not set)"}</p>
             {problem ? (
               <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-inset ring-amber-200">
                 <strong>Not delivering:</strong> {problem}

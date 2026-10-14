@@ -14,6 +14,20 @@ import { sendPasswordResetLink } from "@/lib/auth/password-reset";
 import { markReportFailed, runReportJob } from "@/lib/reports/service";
 import { claimNextJob, completeJob, continueJob, failJobAttempt, recoverStaleJobs, type ClaimFilter, type JobType } from "./queue";
 import { scheduleDueWork } from "./scheduler";
+import { claimPeriod, releasePeriod } from "@/lib/settings";
+
+/**
+ * The scheduler claims a digest's day before the job runs, so a digest that
+ * exhausted its attempts would otherwise never go out that day. Release the
+ * claim once per day: the next tick queues a fresh job, recipients already
+ * served are skipped by their dedupe keys, and a mail server that stays down
+ * cannot turn this into a retry loop.
+ */
+async function releaseDigestPeriod(job: Job) {
+  const kind = job.payload.kind === "weekly" ? "weekly" : "daily";
+  const period = String(job.payload.periodKey);
+  if (await claimPeriod(`digest:${kind}:retry`, period)) await releasePeriod(`digest:${kind}`, period);
+}
 
 /** Stop claiming new jobs when less than this much time is left. */
 const MIN_REMAINING_MS = 30_000;
@@ -218,6 +232,7 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
     if (final && job.type === "report") {
       await markReportFailed(Number(job.payload.reportId), `The report could not be generated: ${message}`);
     }
+    if (final && job.type === "digest") await releaseDigestPeriod(job);
     return "failed";
   }
 }

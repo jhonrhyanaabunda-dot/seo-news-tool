@@ -373,6 +373,9 @@ export const seoScans = pgTable(
   (t) => [
     index("seo_scans_dealership_idx").on(t.dealershipId, t.createdAt),
     index("seo_scans_status_idx").on(t.status),
+    // "Latest completed scan per dealership" (the dashboard runs it per dealership on every load). Ascending:
+    // read backwards it serves `order by completed_at desc`, whose default is NULLS FIRST.
+    index("seo_scans_dealership_completed_idx").on(t.dealershipId, t.status, t.completedAt),
     // Only one in-flight scan per dealership at a time.
     uniqueIndex("seo_scans_one_active_idx")
       .on(t.dealershipId)

@@ -19,6 +19,11 @@ const schema = z.object({
 
   EMAIL_PROVIDER: z.enum(["resend", "smtp", "console"]).default("console"),
   EMAIL_FROM: z.string().default("A3 SEO Monitor <seo-monitor@example.com>"),
+  /** Where replies go. Unset: replies reach the EMAIL_FROM mailbox. */
+  EMAIL_REPLY_TO: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined),
   RESEND_API_KEY: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(587),
@@ -64,6 +69,11 @@ const schema = z.object({
   CRAWLER_DELAY_MS: z.coerce.number().int().min(0).max(10000).default(750),
   /** Upper bound on retries for transient failures (timeouts, dropped connections, 5xx). Refusals are never retried. */
   CRAWLER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
+  /**
+   * Internal links that returned OK in one of the dealership's scans within this many hours are not requested
+   * again. Broken, refused and unverified links are always re-checked. 0 = check every link on every scan.
+   */
+  LINK_RESULT_REUSE_HOURS: z.coerce.number().int().min(0).max(336).default(72),
 
   /**
    * Bearer token for the machine-to-machine crawl-job API (POST /api/crawl-jobs).

@@ -68,6 +68,7 @@ export async function scanNowAction(formData: FormData) {
   const limit = await checkRateLimit({ key: `scan-now:${user.id}`, limit: 20, windowSeconds: 3600 });
   if (!limit.allowed) redirect(`/dealerships/${id}?notice=rate-limited`);
   const scanId = await createScanAndJob(id, "manual");
+  await logger.info("admin", scanId ? "Manual scan queued" : "Manual scan requested while one is running", { by: user.email, scanId }, id);
   if (scanId) kickProcessing();
   revalidatePath(`/dealerships/${id}`);
   redirect(`/dealerships/${id}?notice=${scanId ? "scan-queued" : "scan-running"}`);
@@ -79,6 +80,7 @@ export async function newsScanNowAction(formData: FormData) {
   const limit = await checkRateLimit({ key: `news-now:${user.id}`, limit: 20, windowSeconds: 3600 });
   if (!limit.allowed) redirect(`/dealerships/${id}?tab=news&notice=rate-limited`);
   await enqueueJob({ type: "news_scan", dealershipId: id, dedupeKey: `news:${id}`, priority: 20 });
+  await logger.info("admin", "Manual news check queued", { by: user.email }, id);
   kickProcessing();
   redirect(`/dealerships/${id}?tab=news&notice=news-queued`);
 }
@@ -90,8 +92,9 @@ export async function cancelScanAction(formData: FormData) {
   // itself must belong to that dealership — the form supplies both ids, so
   // neither one may vouch for the other.
   await assertAdmin();
-  await assertDealershipAccess(id);
+  const user = await assertDealershipAccess(id);
   const cancelled = await cancelScan(scanId, id);
+  if (cancelled) await logger.info("admin", "Scan cancelled", { by: user.email, scanId }, id);
   revalidatePath(`/dealerships/${id}`);
   redirect(`/dealerships/${id}?notice=${cancelled ? "scan-cancelled" : "scan-not-cancellable"}`);
 }

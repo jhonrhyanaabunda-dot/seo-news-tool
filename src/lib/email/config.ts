@@ -6,6 +6,7 @@
 export interface EmailConfig {
   EMAIL_PROVIDER: "resend" | "smtp" | "console";
   EMAIL_FROM: string;
+  EMAIL_REPLY_TO?: string;
   RESEND_API_KEY?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: number;
@@ -42,6 +43,7 @@ export function emailConfigProblem(c: EmailConfig): string | null {
   const address = fromAddress(c.EMAIL_FROM);
   if (!address) return `EMAIL_FROM is not a valid sender ("${c.EMAIL_FROM}"). Use the form: A3 SEO Monitor <reports@yourdomain.com>.`;
   if (PLACEHOLDER_DOMAINS.test(address)) return `EMAIL_FROM uses a placeholder address (${address}). Set it to an address on your verified sending domain.`;
+  if (c.EMAIL_REPLY_TO && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]{2,}$/.test(c.EMAIL_REPLY_TO)) return `EMAIL_REPLY_TO is not a valid address ("${c.EMAIL_REPLY_TO}"). Use a bare address such as seo@yourdomain.com, or leave it empty.`;
   if (c.EMAIL_PROVIDER === "resend") {
     if (!c.RESEND_API_KEY) return "EMAIL_PROVIDER=resend but RESEND_API_KEY is not set.";
     if (!c.RESEND_API_KEY.startsWith("re_")) return "RESEND_API_KEY does not look like a Resend API key (they start with re_).";

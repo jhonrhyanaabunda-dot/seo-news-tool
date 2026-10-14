@@ -43,7 +43,7 @@ class ResendProvider implements EmailProvider {
       if (wait > 0) await sleep(wait);
       lastResendAt = Date.now();
       const { data, error } = await this.client.emails.send(
-        { from: env().EMAIL_FROM, to: [m.to], subject: m.subject, html: m.html, text: m.text },
+        { from: env().EMAIL_FROM, to: [m.to], subject: m.subject, html: m.html, text: m.text, ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}) },
         m.idempotencyKey ? { idempotencyKey: m.idempotencyKey } : undefined,
       );
       if (!error) return { id: data?.id ?? null };
@@ -72,7 +72,7 @@ class SmtpProvider implements EmailProvider {
   });
   async send(m: EmailMessage) {
     try {
-      const info = await this.transport.sendMail({ from: env().EMAIL_FROM, to: m.to, subject: m.subject, html: m.html, text: m.text });
+      const info = await this.transport.sendMail({ from: env().EMAIL_FROM, to: m.to, subject: m.subject, html: m.html, text: m.text, ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}) });
       return { id: info.messageId ?? null };
     } catch (err) {
       throw new Error(friendlySmtpError(err as { code?: string; responseCode?: number; message?: string }, env().SMTP_HOST));

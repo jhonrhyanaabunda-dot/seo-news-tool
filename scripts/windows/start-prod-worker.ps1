@@ -16,8 +16,14 @@ $env:ENV_FILE = ".env.worker"
 $env:NODE_OPTIONS = "--conditions=react-server --dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=3000"
 
 # caffeinate -i equivalent: no idle sleep while this process runs. No power setting is changed.
-Add-Type -Namespace A3 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
-[void][A3.Power]::SetThreadExecutionState(0x80000001) # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+# Best effort: the worker must still start if this fails.
+try {
+  Add-Type -Namespace A3 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED. Written as decimal: PowerShell 5.1 reads 0x80000001 as a negative Int32.
+  [void][A3.Power]::SetThreadExecutionState([uint32]2147483649)
+} catch {
+  Write-Warning "Could not keep the PC awake: $_"
+}
 
 $logDir = Join-Path $env:LOCALAPPDATA "a3-seo-worker"
 New-Item -ItemType Directory -Force $logDir | Out-Null

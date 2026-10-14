@@ -67,3 +67,10 @@ test("SMTP failures are explained", async () => {
   assert.match(friendlySmtpError({ code: "EAUTH", responseCode: 535, message: "Username and Password not accepted" }, "smtp.gmail.com"), /Google App Password/);
   assert.match(friendlySmtpError({ code: "ETIMEDOUT", message: "Connection timeout" }, "smtp.gmail.com"), /port 465/);
 });
+
+test("Reply-To is optional, and a set value must be a bare address", () => {
+  assert.equal(emailConfigProblem({ ...resend, EMAIL_REPLY_TO: undefined }), null);
+  assert.equal(emailConfigProblem({ ...resend, EMAIL_REPLY_TO: "seo@a3brands.com" }), null);
+  assert.match(emailConfigProblem({ ...resend, EMAIL_REPLY_TO: "A3 <seo@a3brands.com>" })!, /EMAIL_REPLY_TO is not a valid address/);
+  assert.match(emailConfigProblem({ ...resend, EMAIL_REPLY_TO: "seo" })!, /EMAIL_REPLY_TO is not a valid address/);
+});

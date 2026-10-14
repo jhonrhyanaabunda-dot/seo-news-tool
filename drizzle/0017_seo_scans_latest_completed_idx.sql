@@ -1,0 +1,1 @@
+CREATE INDEX "seo_scans_dealership_completed_idx" ON "seo_scans" USING btree ("dealership_id","status","completed_at");

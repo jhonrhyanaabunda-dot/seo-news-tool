@@ -14,6 +14,12 @@ async function main() {
     console.log("SKIP_DB_MIGRATE=1 — skipping migrations.");
     return;
   }
+  // Preview deployments share the production DATABASE_URL, so a branch's migration
+  // would reach production before review. Only production deploys migrate.
+  if (process.env.VERCEL_ENV === "preview") {
+    console.log("Vercel preview build — skipping migrations (production deploys apply them).");
+    return;
+  }
   const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
   const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });

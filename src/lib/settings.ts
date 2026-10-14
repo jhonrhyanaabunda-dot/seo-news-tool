@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { inQuietHours, localParts } from "./local-time";
 import { db } from "@/lib/db";
@@ -80,6 +80,14 @@ export async function claimPeriod(key: string, period: string): Promise<boolean>
     })
     .returning({ key: settings.key });
   return rows.length > 0;
+}
+
+/**
+ * Undo a claim so the next tick can claim the same period again. Clears the
+ * marker only while it still holds `period`, so a newer period is never undone.
+ */
+export async function releasePeriod(key: string, period: string): Promise<void> {
+  await db.delete(settings).where(and(eq(settings.key, `period:${key}`), sql`${settings.value} = ${JSON.stringify(period)}::jsonb`));
 }
 
 export async function getPeriodMarker(key: string): Promise<string | null> {

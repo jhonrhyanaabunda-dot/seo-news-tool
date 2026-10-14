@@ -809,6 +809,32 @@ async function linksPhase(scan: SeoScan, dealer: Dealership, state: CrawlState, 
       where l.scan_id = ${scan.id} and p.scan_id = ${scan.id}
         and p.normalized_url = l.url and l.checked = false and p.status in ('fetched', 'failed')
     `);
+    // Internal links this dealership's site answered OK for recently keep that result instead of being
+    // requested again; on sites that refuse plain requests each one is a browser round trip. Only a
+    // first-hand check is a source (never a REUSED row), so every link is really checked at least once
+    // per window, and a link whose latest result was broken, refused or unverified is always re-checked.
+    const reuseHours = env().LINK_RESULT_REUSE_HOURS;
+    if (reuseHours > 0 && scan.websiteUrl) {
+      const reused = (await db.execute(sql`
+        with prev as (
+          select distinct on (pl.url) pl.url, pl.http_status, pl.is_broken, pl.error_code
+          from ${scanLinks} pl join ${seoScans} ps on ps.id = pl.scan_id
+          where ps.dealership_id = ${scan.dealershipId} and ps.id <> ${scan.id} and ps.status = 'completed'
+            and ps.completed_at > now() - make_interval(hours => ${reuseHours}::int)
+            and ps.website_url = ${scan.websiteUrl}
+            and pl.is_internal and pl.checked and pl.error_code is distinct from 'REUSED'
+          order by pl.url, ps.completed_at desc
+        )
+        update ${scanLinks} l set checked = true, http_status = prev.http_status, error_code = 'REUSED', is_broken = false
+        from prev
+        where l.scan_id = ${scan.id} and l.url = prev.url and l.is_internal and l.checked = false
+          and not prev.is_broken and prev.error_code is null and prev.http_status between 200 and 399
+        returning l.id
+      `)) as unknown as Array<{ id: number }>;
+      if (reused.length) {
+        await logScanEvent(scan.id, "info", `Reused ${reused.length} internal link result(s) verified OK within the last ${reuseHours} hours; the rest are checked now.`);
+      }
+    }
     const pick = async (internal: boolean, limit: number) =>
       db
         .select({ id: scanLinks.id })
@@ -1213,8 +1239,13 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
       from (select page_id, count(*)::int as n from ${seoIssues} where scan_id = ${scan.id} and page_id is not null group by page_id) s
       where p.id = s.page_id and p.scan_id = ${scan.id}
     `);
-    // Non-broken links are only needed during evaluation; drop them to keep storage lean.
-    await tx.delete(scanLinks).where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isBroken, false)));
+    // Non-broken links are only needed during evaluation; drop them to keep storage lean. Internal links verified
+    // OK first-hand stay while reuse is on: they are what the next scans reuse instead of requesting again
+    // (linksPhase). Maintenance prunes them with the rest of the scan's details.
+    const keepReusable = env().LINK_RESULT_REUSE_HOURS > 0
+      ? sql`not (${scanLinks.isInternal} and ${scanLinks.checked} and ${scanLinks.errorCode} is null and ${scanLinks.httpStatus} between 200 and 399)`
+      : sql`true`;
+    await tx.delete(scanLinks).where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isBroken, false), keepReusable));
     await tx
       .update(seoScans)
       .set({
