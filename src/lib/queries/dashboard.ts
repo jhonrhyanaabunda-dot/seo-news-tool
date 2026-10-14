@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import type { ScanChangeSummary } from "@/lib/db/schema";
 import type { DealerStatus } from "@/components/ui";
 import { nextScheduledScanAt } from "@/lib/jobs/scheduler";
+import { presentedScanOrderSql } from "@/lib/seo/presented-scan";
 import { dealershipSqlScope } from "./scope";
 
 export interface DealerRow {
@@ -60,6 +61,7 @@ type RawRow = {
   website_platform: string | null;
   detected_platform: string | null;
   last_successful_scan_at: Date | string | null;
+  newer_blocked_at: Date | string | null;
 };
 
 function deriveStatus(r: RawRow): { status: DealerStatus; detail: string | null } {
@@ -84,14 +86,18 @@ export async function getDealerRows(allowed: number[] | null = null): Promise<De
       ls.score, ls.critical_count, ls.warning_count, ls.completed_at, ls.site_available, ls.change_summary, ls.blocked_reason, ls.audit_mode, ls.outcome,
       ls.pages_scanned, ls.pages_protected,
       act.status as active_status, lst.status as last_status, lst.error_message as last_error,
-      coalesce(nn.n, 0)::int as new_news
+      coalesce(nn.n, 0)::int as new_news, nb.completed_at as newer_blocked_at
     from dealerships d
     left join lateral (
       select score, critical_count, warning_count, completed_at, site_available, change_summary, site_checks->>'blockedReason' as blocked_reason, site_checks->>'auditMode' as audit_mode, outcome,
         pages_scanned, pages_blocked + pages_not_evaluated as pages_protected
       from seo_scans s where s.dealership_id = d.id and s.status = 'completed'
-      order by s.completed_at desc limit 1
+      order by ${presentedScanOrderSql} limit 1
     ) ls on true
+    left join lateral (
+      select s.completed_at from seo_scans s where s.dealership_id = d.id and s.status = 'completed' and s.outcome = 'blocked' and s.completed_at > ls.completed_at
+      order by s.completed_at desc limit 1
+    ) nb on true
     left join lateral (
       select status from seo_scans s where s.dealership_id = d.id and s.status in ('queued','crawling','finalizing') limit 1
     ) act on true
@@ -106,7 +112,12 @@ export async function getDealerRows(allowed: number[] | null = null): Promise<De
     order by d.name asc
   `);
   return (rows as unknown as RawRow[]).map((r) => {
-    const { status, detail } = deriveStatus(r);
+    const derived = deriveStatus(r);
+    const { status } = derived;
+    // The row shows the last scan that read the site; say so when a newer check was blocked.
+    const detail = r.newer_blocked_at && !derived.detail && !(["paused", "scanning", "failed", "not_scanned"] as DealerStatus[]).includes(status)
+      ? "The latest check was blocked by the website's security (usually temporary); showing the previous scan."
+      : derived.detail;
     return {
       id: r.id,
       name: r.name,

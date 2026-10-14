@@ -89,3 +89,40 @@ test("preview builds never migrate the shared production database", () => {
   assert.ok(guard < src.indexOf("await migrate("), "the check runs before any migration");
   assert.match(read("package.json"), /"vercel-build": "npm run db:migrate && next build"/);
 });
+
+test("a blocked site gets exactly one quick re-check before the back-off", async () => {
+  const { needsBlockedRecheck, CRAWL_POLICY } = await import("@/lib/seo/crawl-policy");
+  assert.equal(CRAWL_POLICY.blockedRecheckHours, 2);
+  assert.equal(needsBlockedRecheck(["blocked", "completed", "completed"]), true, "first block → re-check");
+  assert.equal(needsBlockedRecheck(["blocked"]), true, "a site's first-ever scan blocked → re-check");
+  assert.equal(needsBlockedRecheck(["blocked", "blocked", "completed"]), false, "re-check also blocked → back-off only");
+  assert.equal(needsBlockedRecheck(["completed", "blocked"]), false, "cleared → nothing to re-check");
+  assert.equal(needsBlockedRecheck(["partially_blocked"]), false, "partial scans were scored; no re-check");
+  assert.equal(needsBlockedRecheck([]), false);
+
+  const scheduler = read("src/lib/jobs/scheduler.ts");
+  const block = scheduler.slice(scheduler.indexOf("const recheck = await db.execute"), scheduler.indexOf("// Regional routing fallback"));
+  assert.ok(block.includes("l.outcome = 'blocked'"), "only after a fully blocked scan");
+  assert.ok(block.includes("make_interval(hours => ${CRAWL_POLICY.blockedRecheckHours}::int)"), "waits the re-check delay");
+  assert.ok(block.includes("not exists (select 1 from seo_scans s where s.dealership_id = d.id and s.status in ('queued','crawling','finalizing'))"), "never beside a running scan");
+  assert.ok(block.includes("if (!needsBlockedRecheck(row.recent_outcomes ?? [])) continue;"), "a blocked re-check is not re-checked again");
+  assert.ok(scheduler.indexOf("if (s.schedulerPaused) return out;") < scheduler.indexOf("const recheck = await db.execute"), "pausing the scheduler pauses re-checks too");
+});
+
+test("every surface presents the last scan that read the site, for up to a week", async () => {
+  const { PgDialect } = await import("drizzle-orm/pg-core");
+  const { presentedScanOrder, presentedScanOrderSql, BLOCKED_FALLBACK_DAYS } = await import("@/lib/seo/presented-scan");
+  assert.equal(BLOCKED_FALLBACK_DAYS, 7);
+  const rendered = new PgDialect().sqlToQuery(presentedScanOrder[0]);
+  assert.match(rendered.sql, /case when "seo_scans"\."outcome" is distinct from 'blocked' and "seo_scans"\."completed_at" > now\(\) - make_interval\(days => \$1::int\) then 0 else 1 end/);
+  assert.deepEqual(rendered.params, [7]);
+  assert.equal(new PgDialect().sqlToQuery(presentedScanOrderSql).sql, "case when s.outcome is distinct from 'blocked' and s.completed_at > now() - make_interval(days => 7) then 0 else 1 end, s.completed_at desc");
+
+  for (const f of ["src/lib/queries/dealership.ts", "src/lib/queries/client-dashboard.ts", "src/lib/reports/findings.ts", "src/lib/email/reports.ts", "src/lib/news/monitor.ts"])
+    assert.ok(read(f).includes(".orderBy(...presentedScanOrder)"), `${f} presents the same scan`);
+  assert.ok(read("src/lib/queries/dashboard.ts").includes("order by ${presentedScanOrderSql} limit 1"), "dashboard rows present the same scan");
+  // People are told when a newer check was blocked, rather than shown an older date without explanation.
+  assert.ok(read("src/app/(app)/dealerships/[id]/page.tsx").includes("{latest && newerBlocked && ("));
+  assert.ok(read("src/components/client-dashboard.tsx").includes("{scan?.newerBlockedAt && ("));
+  assert.ok(read("src/lib/queries/dashboard.ts").includes("r.newer_blocked_at"));
+});

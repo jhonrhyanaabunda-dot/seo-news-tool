@@ -3,6 +3,7 @@ import { cache } from "react";
 import { and, asc, count, desc, eq, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles, newsKeywords, reports, scanEvents, scanPages, seoChecks, seoIssues, seoScans } from "@/lib/db/schema";
+import { presentedScanOrder } from "@/lib/seo/presented-scan";
 
 /**
  * Cached per request: the layout reads it to decide whether the route exists and
@@ -14,12 +15,22 @@ export const getDealership = cache(async (id: number) => {
 });
 
 export async function getLatestScans(dealershipId: number) {
-  const [latest] = await db
-    .select()
-    .from(seoScans)
-    .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
-    .limit(1);
+  // The scan to present (see presented-scan), and the newest completed one, to say when a newer check was blocked.
+  const [[latest], [newest]] = await Promise.all([
+    db
+      .select()
+      .from(seoScans)
+      .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
+      .orderBy(...presentedScanOrder)
+      .limit(1),
+    db
+      .select({ id: seoScans.id, outcome: seoScans.outcome, completedAt: seoScans.completedAt })
+      .from(seoScans)
+      .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
+      .orderBy(desc(seoScans.completedAt))
+      .limit(1),
+  ]);
+  const newerBlocked = latest && newest && newest.id !== latest.id && newest.outcome === "blocked" ? { completedAt: newest.completedAt } : null;
   // `stalled` is evaluated against the database clock — the same one that stamps
   // updated_at — so it stays correct regardless of the app server's time.
   const [active] = await db
@@ -33,6 +44,8 @@ export async function getLatestScans(dealershipId: number) {
   const [lastAttempt] = await db.select().from(seoScans).where(eq(seoScans.dealershipId, dealershipId)).orderBy(desc(seoScans.createdAt)).limit(1);
   return {
     latest: latest ?? null,
+    /** Set when the newest completed scan was blocked and an earlier one is presented instead. */
+    newerBlocked,
     active: active ? { ...active.scan, stalled: active.stalled } : null,
     lastAttempt: lastAttempt ?? null,
   };

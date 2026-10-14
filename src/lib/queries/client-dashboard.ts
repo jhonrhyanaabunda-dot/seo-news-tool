@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alerts, dealerships, seoScans, type Dealership } from "@/lib/db/schema";
+import { presentedScanOrder } from "@/lib/seo/presented-scan";
 import { getOpportunities } from "./client-opportunities";
 import type { Opportunity } from "@/lib/seo/opportunity";
 
@@ -41,6 +42,8 @@ export interface ClientDashboard {
     pagesScanned: number;
     /** True once housekeeping has removed this scan's individual issue rows. */
     detailsRetained: boolean;
+    /** When the newest check was blocked and this earlier scan is shown instead. */
+    newerBlockedAt: Date | null;
   } | null;
   /** A scan currently running, so the page can say so rather than look stale. */
   activeScan: { id: number; status: string } | null;
@@ -77,7 +80,7 @@ export async function getClientDashboard(dealershipId: number): Promise<ClientDa
     .select()
     .from(seoScans)
     .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
+    .orderBy(...presentedScanOrder)
     .limit(1);
 
   const [active] = await db
@@ -117,6 +120,15 @@ export async function getClientDashboard(dealershipId: number): Promise<ClientDa
   };
   if (!latest) return empty;
 
+  // A newer check that was blocked is not presented (see presented-scan), but the client is told it happened.
+  const [newest] = await db
+    .select({ id: seoScans.id, outcome: seoScans.outcome, completedAt: seoScans.completedAt })
+    .from(seoScans)
+    .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
+    .orderBy(desc(seoScans.completedAt))
+    .limit(1);
+  const newerBlockedAt = newest && newest.id !== latest.id && newest.outcome === "blocked" ? newest.completedAt : null;
+
   const change = latest.changeSummary;
   const opportunities = await getOpportunities(latest.id);
   return {
@@ -131,6 +143,7 @@ export async function getClientDashboard(dealershipId: number): Promise<ClientDa
       siteAvailable: latest.siteAvailable,
       pagesScanned: latest.pagesScanned,
       detailsRetained: latest.detailsRetained,
+      newerBlockedAt,
     },
     counts: { critical: latest.criticalCount, warning: latest.warningCount, info: latest.infoCount ?? 0 },
     pages: await pageHealth(latest.id, latest.pagesScanned),

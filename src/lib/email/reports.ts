@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, gte, isNotNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alerts, dealerships, newsArticles, seoScans, type Dealership } from "@/lib/db/schema";
+import { presentedScanOrder } from "@/lib/seo/presented-scan";
 import { diffFingerprints } from "@/lib/changes/detect";
 import { env } from "@/lib/env";
 import { getOpportunities } from "@/lib/queries/client-opportunities";
@@ -25,7 +26,7 @@ export async function buildDealerDigest(d: Dealership, periodStart: Date, s: App
     .select()
     .from(seoScans)
     .where(and(eq(seoScans.dealershipId, d.id), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
+    .orderBy(...presentedScanOrder)
     .limit(1);
   const candidates = await db
     .select()

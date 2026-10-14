@@ -17,7 +17,17 @@ export const CRAWL_POLICY = {
   /** After consecutive blocked scans, wait interval × 2^streak (capped) before trying again. */
   maxBlockedBackoffFactor: 8,
   maxBlockedBackoffHours: 168,
+  /**
+   * After a site's first blocked scan, look once more this many hours later before the back-off
+   * applies. Blocks on dealer sites have been transient: every one cleared on the next attempt.
+   */
+  blockedRecheckHours: 2,
 };
+
+/** One re-check, only after the first block of a streak; a blocked re-check falls back to the back-off. */
+export function needsBlockedRecheck(recentOutcomes: Array<string | null>): boolean {
+  return consecutiveBlocked(recentOutcomes) === 1;
+}
 
 /**
  * Retry only failures that are likely temporary (timeouts, dropped

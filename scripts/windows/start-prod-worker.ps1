@@ -28,16 +28,34 @@ try {
 $logDir = Join-Path $env:LOCALAPPDATA "a3-seo-worker"
 New-Item -ItemType Directory -Force $logDir | Out-Null
 $log = Join-Path $logDir "worker.log"
+$pidFile = Join-Path $logDir "worker.pid"
+$ErrorActionPreference = "Continue"
+
+function Write-LauncherLog([string]$message) {
+  try { [IO.File]::AppendAllText($log, "[launcher] $(Get-Date -Format s) $message`r`n") } catch { }
+}
+
+# Stopping the scheduled task ends only this script, not the worker it started, so
+# a restart would leave the old worker running beside the new one (and holding the
+# log open). Stop the previous worker first; its cmd.exe PID is in worker.pid.
+$previous = Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($previous -and (Get-Process -Id $previous -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -eq "cmd" })) {
+  Write-LauncherLog "stopping the previous worker (cmd PID $previous)"
+  taskkill /PID $previous /T /F | Out-Null
+  Start-Sleep -Seconds 2
+}
 
 # Task Scheduler only restarts a task that fails to launch, not one whose process
-# exits, so the restart loop lives here. A job interrupted by a crash is reclaimed
-# by the queue's stale-job recovery.
-$ErrorActionPreference = "Continue"
+# exits, so the restart loop lives here. A job interrupted by a crash or a restart
+# is reclaimed by the queue's stale-job recovery.
 while ($true) {
-  if ((Test-Path $log) -and (Get-Item $log).Length -gt 20MB) { Move-Item -Force $log "$log.1" }
-  Add-Content -Encoding utf8 $log "[launcher] $(Get-Date -Format s) starting worker"
-  cmd /c "node node_modules\tsx\dist\cli.mjs worker\index.ts >> `"$log`" 2>&1"
-  $code = $LASTEXITCODE
-  Add-Content -Encoding utf8 $log "[launcher] $(Get-Date -Format s) worker exited with code $code; restarting in 30s"
+  if ((Test-Path $log) -and (Get-Item $log).Length -gt 20MB) { Move-Item -Force $log "$log.1" -ErrorAction SilentlyContinue }
+  Write-LauncherLog "starting worker"
+  $worker = Start-Process -FilePath "cmd.exe" -ArgumentList "/c node node_modules\tsx\dist\cli.mjs worker\index.ts >> `"$log`" 2>&1" -NoNewWindow -PassThru
+  $null = $worker.Handle # without this, ExitCode is empty once the process has exited
+  Set-Content -Path $pidFile -Value $worker.Id
+  $worker.WaitForExit()
+  Remove-Item $pidFile -ErrorAction SilentlyContinue
+  Write-LauncherLog "worker exited with code $($worker.ExitCode); restarting in 30s"
   Start-Sleep -Seconds 30
 }

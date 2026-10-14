@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles, scanPages, seoChecks, seoIssues, seoScans, type Dealership } from "@/lib/db/schema";
+import { presentedScanOrder } from "@/lib/seo/presented-scan";
 import { CATEGORIES, CHECKS_BY_KEY, type Category } from "@/lib/seo/checks/config";
 import { OUTCOME_META, type ScanOutcome } from "@/lib/seo/outcome";
 import { PRIORITY_ORDER, priorityFor, reportGroupFor } from "@/lib/seo/priority";
@@ -26,7 +27,7 @@ export async function buildFindings(dealer: Dealership): Promise<ReportFindings 
     .select()
     .from(seoScans)
     .where(and(eq(seoScans.dealershipId, dealer.id), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
+    .orderBy(...presentedScanOrder)
     .limit(1);
   if (!scan) return null;
 

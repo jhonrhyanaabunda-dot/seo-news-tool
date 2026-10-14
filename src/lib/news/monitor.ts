@@ -1,8 +1,9 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles, newsKeywords, scanPages, seoScans, type NewsSourceType } from "@/lib/db/schema";
+import { presentedScanOrder } from "@/lib/seo/presented-scan";
 import { createAlert } from "@/lib/changes/alerts";
 import { logger, errorMessage } from "@/lib/logger";
 import { getSettings } from "@/lib/settings";
@@ -227,7 +228,7 @@ async function crawledNewsPages(dealershipId: number): Promise<SourcedArticle[]>
     .select({ id: seoScans.id })
     .from(seoScans)
     .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
+    .orderBy(...presentedScanOrder)
     .limit(1);
   if (!scan) return [];
   const pages = await db
