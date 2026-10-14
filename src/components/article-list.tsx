@@ -31,7 +31,7 @@ function ArticleItem({ a, tz, minScore }: { a: ArticleRow; tz: string; minScore:
   const published = fmtPublished(a.publishedAt, a.publishedPrecision, tz);
   const link = a.originalUrl ?? a.url;
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
       <article className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">

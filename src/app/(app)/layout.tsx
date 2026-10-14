@@ -1,15 +1,17 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
 import { isClient } from "@/lib/auth/tenant";
 import { logoutAction } from "@/lib/auth/actions";
 import { NavLinks } from "@/components/client/nav-links";
-import { SignInIntro } from "@/components/client/sign-in-intro";
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+}
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const justSignedIn = (await cookies()).get("a3_intro")?.value === "1";
   const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" }> = [
     { href: "/", label: "Dashboard", icon: "dashboard" },
     { href: "/news", label: "News", icon: "news" },
@@ -24,48 +26,56 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       { href: "/admin/system", label: "System", icon: "system" },
     );
   }
+  const roleLabel = user.role === "admin" ? "Administrator" : user.role === "client" ? "Dealership" : "Viewer";
   return (
-    <div className={`md:flex ${justSignedIn ? "app-rise" : ""}`}>
-      {justSignedIn && <SignInIntro name={user.name} />}
+    <div className="md:flex">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2">
         Skip to content
       </a>
-      <aside className="bg-brand-900 text-white md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
-        <div className="flex items-center justify-between px-4 py-4 md:block">
-          <Link href="/" className="block">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-300">A3 Brands</div>
-            <div className="text-base font-semibold leading-tight">SEO &amp; News Monitor</div>
+      <aside className="bg-brand-950 text-white md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col md:border-r md:border-white/5">
+        <div className="flex items-center justify-between gap-3 px-4 py-3.5 md:px-5 md:py-5">
+          <Link href="/" className="block min-w-0">
+            <div className="text-xs font-medium text-blue-300/90">A3 Brands</div>
+            <div className="truncate text-[15px] font-semibold leading-tight tracking-tight">SEO &amp; News Monitor</div>
           </Link>
+          {/* Phones: account and sign-out live in the top bar, the sidebar footer is hidden. */}
+          <div className="flex items-center gap-3 md:hidden">
+            <Link href="/account" aria-label={`Account: ${user.name}`} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+              {initials(user.name)}
+            </Link>
+            <form action={logoutAction}>
+              <button type="submit" aria-label="Sign out" className="flex h-8 w-8 items-center justify-center rounded-md text-blue-100/80 hover:bg-white/10 hover:text-white">
+                <LogOut aria-hidden className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
         </div>
-        <nav aria-label="Main" className="px-2 pb-3 md:flex-1">
+        <nav aria-label="Main" className="px-2 pb-2 md:flex-1 md:px-3 md:pb-3">
           <NavLinks items={items} />
         </nav>
-        <div className="hidden border-t border-white/10 px-4 py-3 text-sm md:block">
-          <Link href="/account" className="block truncate font-medium text-white hover:underline">
-            {user.name}
-          </Link>
-          <div className="truncate text-xs text-blue-200/80">
-            {user.email} · {user.role === "admin" ? "Administrator" : user.role === "client" ? "Dealership" : "Viewer"}
+        <div className="hidden border-t border-white/10 p-3 md:block">
+          <div className="flex items-center gap-3 rounded-md px-2 py-2">
+            <Link href="/account" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white hover:bg-white/15" aria-hidden tabIndex={-1}>
+              {initials(user.name)}
+            </Link>
+            <div className="min-w-0 flex-1">
+              <Link href="/account" className="block truncate text-sm font-medium text-white hover:underline">
+                {user.name}
+              </Link>
+              <div className="truncate text-xs text-blue-100/60" title={user.email}>
+                {roleLabel}
+              </div>
+            </div>
+            <form action={logoutAction}>
+              <button type="submit" aria-label="Sign out" title="Sign out" className="flex h-8 w-8 items-center justify-center rounded-md text-blue-100/70 transition-colors hover:bg-white/10 hover:text-white">
+                <LogOut aria-hidden className="h-4 w-4" />
+              </button>
+            </form>
           </div>
-          <form action={logoutAction} className="mt-2">
-            <button type="submit" className="inline-flex items-center gap-1.5 text-xs text-blue-100 hover:text-white">
-              <LogOut aria-hidden className="h-3.5 w-3.5" /> Sign out
-            </button>
-          </form>
         </div>
       </aside>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-2 text-sm md:hidden">
-          <Link href="/account" className="text-slate-700">
-            {user.name}
-          </Link>
-          <form action={logoutAction}>
-            <button type="submit" className="text-slate-500 hover:text-slate-900">
-              Sign out
-            </button>
-          </form>
-        </div>
-        <main id="main" className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <main id="main" className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
           {children}
         </main>
       </div>

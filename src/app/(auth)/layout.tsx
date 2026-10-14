@@ -1,56 +1,56 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import Image from "next/image";
-import { CalendarCheck, FileBarChart, Mailbox } from "lucide-react";
 
 /**
- * Shell for the signed-out pages: a photographic hero on the left, the card on
+ * Shell for the signed-out pages: a solid brand panel on the left, the card on
  * the right. Drop a photo at public/auth-hero.jpg (something A3 owns or has
- * licensed) and it is used automatically; until then the brand gradient shows.
+ * licensed) and it is used automatically, darkened so the text stays readable.
  */
 const HERO = "/auth-hero.jpg";
 const heroExists = existsSync(path.join(process.cwd(), "public", "auth-hero.jpg"));
 
-const HIGHLIGHTS = [
-  { icon: FileBarChart, title: "Track performance", body: "39 checks per page" },
-  { icon: CalendarCheck, title: "Catch problems", body: "Daily scans and alerts" },
-  { icon: Mailbox, title: "Stay informed", body: "Monday SEO newsletter" },
+const FACTS = [
+  { value: "39", label: "SEO checks on every page" },
+  { value: "Daily", label: "website scans and alerts" },
+  { value: "Weekly", label: "SEO and industry newsletter" },
 ];
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen overflow-hidden lg:grid-cols-[1.1fr_1fr]">
-      <aside className="auth-hero auth-hero-enter relative hidden flex-col justify-center gap-9 overflow-hidden p-10 text-white lg:flex xl:p-14">
-        {heroExists && <Image src={HERO} alt="" fill priority sizes="55vw" className="object-cover" />}
-        <div className="auth-hero-veil absolute inset-0" />
+    <div className="grid min-h-screen lg:grid-cols-[1fr_1fr]">
+      <aside className="auth-hero relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14">
+        {heroExists && (
+          <>
+            <Image src={HERO} alt="" fill priority sizes="50vw" className="object-cover" />
+            <div className="absolute inset-0 bg-brand-950/80" />
+          </>
+        )}
+
+        <div className="relative text-sm font-medium text-blue-200/90">A3 Brands</div>
 
         <div className="relative max-w-md">
-          <h1 className="auth-rise text-[40px] font-bold leading-[1.1] tracking-tight" style={{ animationDelay: "420ms" }}>
-            Smarter monitoring.
-            <span className="mt-1 block text-blue-300">Better websites.</span>
-          </h1>
-          <p className="auth-rise mt-5 text-[17px] leading-relaxed text-blue-50/85" style={{ animationDelay: "520ms" }}>
-            Your dealership SEO and news workspace, watching every site so nothing slips.
+          <h1 className="text-3xl font-semibold leading-tight tracking-tight xl:text-4xl">SEO &amp; News Monitor</h1>
+          <p className="mt-4 text-base leading-relaxed text-blue-100/80">
+            Website health, search visibility and dealership news for every A3 Brands client, checked automatically and reported in plain language.
           </p>
         </div>
 
-        <ul className="relative flex max-w-xl flex-wrap items-center gap-x-10 gap-y-5 border-t border-white/15 pt-7">
-          {HIGHLIGHTS.map(({ icon: Icon, title, body }, i) => (
-            <li key={title} className="auth-rise flex items-center gap-3" style={{ animationDelay: `${620 + i * 110}ms` }}>
-              <Icon aria-hidden className="h-5 w-5 shrink-0 text-blue-300" />
-              <span>
-                <span className="block text-sm font-semibold leading-tight">{title}</span>
-                <span className="block text-[13px] text-blue-100/70">{body}</span>
-              </span>
-            </li>
+        <dl className="relative grid max-w-lg grid-cols-3 gap-6 border-t border-white/10 pt-6">
+          {FACTS.map((f) => (
+            <div key={f.label}>
+              <dt className="sr-only">{f.label}</dt>
+              <dd className="text-xl font-semibold tabular-nums">{f.value}</dd>
+              <dd className="mt-1 text-sm leading-snug text-blue-100/70">{f.label}</dd>
+            </div>
           ))}
-        </ul>
+        </dl>
       </aside>
 
       <main className="auth-canvas flex items-center justify-center p-5 sm:p-8">
-        <div className="auth-card w-full max-w-md rounded-2xl bg-white p-7 sm:p-9">
-          <div className="auth-rise mb-6 flex justify-center">
-            <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-10 w-auto" />
+        <div className="auth-card w-full max-w-[26rem] rounded-xl bg-white p-7 sm:p-9">
+          <div className="mb-5 flex justify-center">
+            <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-16 w-auto" />
           </div>
           {children}
         </div>

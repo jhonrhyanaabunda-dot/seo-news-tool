@@ -58,7 +58,7 @@ export default async function SeoNewsPage({ searchParams }: { searchParams: Prom
         }
       />
 
-      <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[var(--shadow-card)]">
         <div>
           <label htmlFor="feed" className="label">
             Publication
@@ -115,7 +115,7 @@ export default async function SeoNewsPage({ searchParams }: { searchParams: Prom
               {rows.map((a) => {
                 const published = fmtPublished(a.publishedAt ?? a.detectedAt, "datetime", tz);
                 return (
-                  <li key={a.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <li key={a.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
                     <article>
                       {a.topics.length > 0 && (
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">

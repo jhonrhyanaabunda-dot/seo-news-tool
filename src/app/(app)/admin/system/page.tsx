@@ -180,7 +180,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
               {crawlers.workers.map((w) => (
                 <li key={w.id}>
-                  {w.lastSeenAt.getTime() > onlineCutoff ? "🟢" : "⚪"} <span className="font-mono">{w.id}</span> · {w.kind} · {w.region} · last seen {fmtRelative(w.lastSeenAt)} · {w.jobsProcessed} jobs
+                  <span aria-hidden className={w.lastSeenAt.getTime() > onlineCutoff ? "mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" : "mr-1 inline-block h-2 w-2 rounded-full bg-slate-300"} /><span className="sr-only">{w.lastSeenAt.getTime() > onlineCutoff ? "Online" : "Offline"}</span> <span className="font-mono">{w.id}</span> · {w.kind} · {w.region} · last seen {fmtRelative(w.lastSeenAt)} · {w.jobsProcessed} jobs
                 </li>
               ))}
             </ul>
@@ -313,7 +313,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                 href={key === "all" ? "/admin/system" : `/admin/system?emails=${key}`}
                 aria-current={(emailFilter ?? "all") === key ? "true" : undefined}
                 className={cn(
-                  "rounded-full px-3 py-1 ring-1 ring-inset",
+                  "rounded-md px-3 py-1.5 font-medium ring-1 ring-inset",
                   (emailFilter ?? "all") === key ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50",
                   key === "failed" && n > 0 && (emailFilter ?? "all") !== key && "text-red-800 ring-red-300",
                 )}

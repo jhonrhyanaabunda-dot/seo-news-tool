@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useState } from "react";
-import { AlertCircle, ArrowRight, Loader2, Lock, Mail } from "lucide-react";
+import { AlertCircle, Loader2, Lock, Mail } from "lucide-react";
 import { loginAction, type LoginState } from "@/lib/auth/actions";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -18,7 +18,7 @@ export function LoginForm({ next }: { next?: string }) {
       )}
       <input type="hidden" name="next" value={next ?? ""} />
 
-      <div className="auth-rise" style={{ animationDelay: "80ms" }}>
+      <div>
         <label htmlFor="email" className="auth-label">
           Email address
         </label>
@@ -39,7 +39,7 @@ export function LoginForm({ next }: { next?: string }) {
         </div>
       </div>
 
-      <div className="auth-rise" style={{ animationDelay: "150ms" }}>
+      <div>
         <label htmlFor="password" className="auth-label">
           Password
         </label>
@@ -50,7 +50,7 @@ export function LoginForm({ next }: { next?: string }) {
             type="button"
             onClick={() => setShowPassword((v) => !v)}
             aria-pressed={showPassword}
-            className="absolute inset-y-0 right-0 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800"
+            className="absolute inset-y-0 right-0 px-3.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
           >
             {showPassword ? "Hide" : "Show"}
             <span className="sr-only"> password</span>
@@ -58,7 +58,7 @@ export function LoginForm({ next }: { next?: string }) {
         </div>
       </div>
 
-      <div className="auth-rise flex items-center justify-between gap-3 pt-0.5" style={{ animationDelay: "210ms" }}>
+      <div className="flex items-center justify-between gap-3 pt-0.5">
         <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" name="remember" defaultChecked className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-100" />
           Remember me
@@ -68,7 +68,7 @@ export function LoginForm({ next }: { next?: string }) {
         </Link>
       </div>
 
-      <button type="submit" className="auth-rise btn-primary group h-11 w-full rounded-lg text-[15px] font-semibold" style={{ animationDelay: "270ms" }} disabled={pending}>
+      <button type="submit" className="btn-primary h-11 w-full text-[15px]" disabled={pending}>
         {pending ? (
           <>
             <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> Signing in…
@@ -76,14 +76,10 @@ export function LoginForm({ next }: { next?: string }) {
         ) : (
           <>
             Sign in
-            <ArrowRight aria-hidden className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </>
         )}
       </button>
 
-      <p className="auth-rise flex items-center justify-center gap-1.5 pt-1 text-xs text-slate-500" style={{ animationDelay: "330ms" }}>
-        <Lock aria-hidden className="h-3.5 w-3.5" /> Your information is secure and private
-      </p>
     </form>
   );
 }

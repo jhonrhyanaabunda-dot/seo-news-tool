@@ -179,9 +179,9 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
 
   return (
     <div>
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative sm:w-80">
-          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+          <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <label htmlFor="dealer-search" className="sr-only">
             Search dealerships
           </label>
@@ -192,9 +192,9 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name, brand or city…"
-            className="input pl-8 pr-8"
+            className="input pl-9 pr-8"
           />
-          {!query && <kbd className="pointer-events-none absolute right-2.5 top-2 hidden rounded border border-slate-200 bg-slate-50 px-1.5 text-xs text-slate-400 sm:block">/</kbd>}
+          {!query && <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 text-xs text-slate-400 sm:block">/</kbd>}
         </div>
         <div className="flex items-center gap-2">
           <label htmlFor="status-filter" className="text-sm text-slate-600">
@@ -225,7 +225,7 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
           </button>
         </div>
       </div>
-      <div className={clsx("overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm transition-opacity", pending && "opacity-60")}>
+      <div className={clsx("overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-[var(--shadow-card)] transition-opacity", pending && "opacity-60")}>
         <table className="table-base">
           <caption className="sr-only">Dealerships with their latest SEO score, issues, news and scan status. Select a dealership to open its report.</caption>
           <thead>
@@ -297,7 +297,9 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
                 <td className="whitespace-nowrap text-slate-600">{r.lastScanLabel}</td>
                 <td>
                   <span title={r.statusDetail ?? undefined}>
-                    <Badge tone={DEALER_STATUS[r.status].tone}>{DEALER_STATUS[r.status].label}</Badge>
+                    <Badge tone={DEALER_STATUS[r.status].tone} dot>
+                      {DEALER_STATUS[r.status].label}
+                    </Badge>
                   </span>
                 </td>
               </tr>

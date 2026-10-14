@@ -55,7 +55,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         title="News monitoring"
         description="News about your dealerships, grouped by store and newest first: mentions of the store, its dealer group, custom keywords and local dealership news. Brand recalls and new models are kept separately under Brand & industry."
       />
-      <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[var(--shadow-card)]">
         <div>
           <label htmlFor="scope" className="label">
             Show
@@ -110,9 +110,9 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         <nav aria-label="Jump to a dealership" className="mb-5 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-slate-500">Jump to:</span>
           {sections.map(({ dealer, total }) => (
-            <a key={dealer.id} href={`#dealer-${dealer.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700">
+            <a key={dealer.id} href={`#dealer-${dealer.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 shadow-[var(--shadow-card)] hover:border-brand-300 hover:text-brand-700">
               {dealer.name}
-              <span className="rounded-full bg-slate-100 px-1.5 text-xs tabular-nums text-slate-600">{total}</span>
+              <span className="rounded-md bg-slate-100 px-1.5 py-px text-xs tabular-nums text-slate-600">{total}</span>
             </a>
           ))}
         </nav>

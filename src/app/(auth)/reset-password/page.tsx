@@ -8,7 +8,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
   const { token } = await searchParams;
   return (
     <>
-      <div className="auth-rise text-center">
+      <div className="text-center">
         <h2 className="text-[26px] font-bold tracking-tight text-slate-900">Choose a new password</h2>
         <p className="mt-1.5 text-sm text-slate-500">{token ? "Pick something you have not used here before." : "This link is missing its code."}</p>
       </div>

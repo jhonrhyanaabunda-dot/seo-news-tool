@@ -10,12 +10,12 @@ export default function Loading() {
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="h-56 rounded-lg border border-slate-200 bg-white shadow-sm" />
-        <div className="h-56 rounded-lg border border-slate-200 bg-white shadow-sm lg:col-span-2" />
+        <div className="h-56 rounded-lg border border-slate-200 bg-white shadow-[var(--shadow-card)]" />
+        <div className="h-56 rounded-lg border border-slate-200 bg-white shadow-[var(--shadow-card)] lg:col-span-2" />
       </div>
       <div className="mt-4 space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div key={i} className="rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
             <SkelLine className="h-4 w-1/2" />
             <SkelLine className="mt-2 h-3 w-1/3 bg-slate-100" />
           </div>

@@ -84,7 +84,7 @@ export function ClientDashboardView({ data, tz, canScan, scanAction, showHeader 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{d.name}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+          <p className="dot-list mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
             <a href={d.websiteUrl} target="_blank" rel="noopener noreferrer" className="break-all text-brand-700 hover:underline">
               {d.websiteUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}
             </a>
@@ -104,6 +104,11 @@ export function ClientDashboardView({ data, tz, canScan, scanAction, showHeader 
 
       {!d.seoEnabled && <Notice tone="info">SEO monitoring is currently paused for this website. The results below are from the last completed check.</Notice>}
       {scan?.siteAvailable === false && <Notice tone="critical">We could not reach this website during the latest check. Until it responds, no score can be calculated.</Notice>}
+      {scan?.newerBlockedAt && (
+        <Notice tone="info">
+          The latest check ({fmtDateTime(scan.newerBlockedAt, tz)}) was blocked by the website&apos;s security, which is usually temporary, and we check again automatically. The results below are from {scan.completedAt ? fmtDateTime(scan.completedAt, tz) : "the previous check"}, the most recent check that could read the website.
+        </Notice>
+      )}
       {activeScan && <Notice tone="info">A new check is running now. The results below are from the previous completed check and will update automatically when it finishes.</Notice>}
 
       {!scan ? (

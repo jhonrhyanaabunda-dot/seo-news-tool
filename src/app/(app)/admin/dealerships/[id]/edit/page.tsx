@@ -56,7 +56,7 @@ export default async function EditDealershipPage({ params }: { params: Promise<{
               {keywords.map((k) => (
                 <li key={k.id}>
                   {k.kind === "custom" ? (
-                    <form action={removeKeywordAction} className="inline-flex items-center gap-1 rounded-full bg-brand-50 py-0.5 pl-2.5 pr-1 text-xs text-brand-700 ring-1 ring-inset ring-brand-100">
+                    <form action={removeKeywordAction} className="inline-flex items-center gap-1 rounded-md bg-brand-50 py-0.5 pl-2.5 pr-1 text-xs text-brand-700 ring-1 ring-inset ring-brand-100">
                       <input type="hidden" name="id" value={id} />
                       <input type="hidden" name="keywordId" value={k.id} />
                       {k.keyword}

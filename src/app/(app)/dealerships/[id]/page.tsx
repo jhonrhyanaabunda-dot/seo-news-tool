@@ -97,7 +97,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
   const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history"];
   const allowedTabs = isClient(user) ? CLIENT_TABS : STAFF_TABS;
   const tab = allowedTabs.includes(sp.tab ?? "") ? sp.tab! : "overview";
-  const [{ latest, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
+  const [{ latest, newerBlocked, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
   const issueCounts = latest ? await getIssueCounts(latest.id) : null;
   const base = `/dealerships/${id}`;
   const href = (next: SP) => {
@@ -125,7 +125,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
         }
         title={dealer.name}
         description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="dot-list flex flex-wrap items-center gap-x-3 gap-y-1">
             <ExternalLink href={dealer.websiteUrl}>{displayUrl(dealer.websiteUrl)}</ExternalLink>
             <span>{dealer.brand}</span>
             {(dealer.city || dealer.state) && <span>{[dealer.city, dealer.state].filter(Boolean).join(", ")}</span>}
@@ -191,9 +191,15 @@ export default async function DealershipPage({ params, searchParams }: { params:
           {active ? "A scan of the current address is in progress." : "Click “Scan now” to scan the current address."}
         </Notice>
       )}
+      {latest && newerBlocked && (
+        <Notice tone="info">
+          The latest check{newerBlocked.completedAt ? <> ({fmtDateTime(newerBlocked.completedAt, tz)})</> : null} was blocked by the website&apos;s security, which is usually temporary; the monitor checks again automatically.
+          The results below are from the last scan that could read the site ({latest.completedAt ? fmtDateTime(latest.completedAt, tz) : "earlier"}).
+        </Notice>
+      )}
       {latest?.outcome === "blocked" && (
         <Notice tone="warning">
-          <strong>⚠️ Scan Blocked</strong> — This dealership website restricted automated access. SEO results for inaccessible pages were not evaluated.
+          <strong>Scan blocked</strong> — This dealership website restricted automated access. SEO results for inaccessible pages were not evaluated.
           {latest.siteChecks?.auditMode === "remote" && (
             <>
               {" "}A limited homepage check from an alternative source (<strong>Google PageSpeed Insights</strong>) is shown instead; nothing else was checked.
@@ -559,7 +565,7 @@ async function Overview({
         )}
         {sc?.blockedUrls && sc.blockedUrls.length > 0 && (
           <div className="mt-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Restricted URLs</div>
+            <div className="text-xs font-medium text-slate-500">Restricted URLs</div>
             <ul className="mt-1 space-y-1 text-xs">
               {sc.blockedUrls.slice(0, 8).map((b) => (
                 <li key={b.url}>
@@ -666,7 +672,7 @@ async function IssuesTab({
   const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1");
   const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check };
   const chip = (label: string, next: SP, active: boolean) => (
-    <Link href={href({ ...keep, ...next, p: undefined })} aria-current={active ? "true" : undefined} className={cn("rounded-full px-3 py-1 text-sm ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
+    <Link href={href({ ...keep, ...next, p: undefined })} aria-current={active ? "true" : undefined} className={cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
       {label}
     </Link>
   );
@@ -793,7 +799,7 @@ async function PagesTab({ scanId, sp, href }: { scanId: number; sp: SP; href: (s
   const filter = sp.filter ?? "default";
   const { rows, total } = await getPages(scanId, { filter, page, pageSize });
   const chip = (label: string, f: string) => (
-    <Link href={href({ tab: "pages", filter: f === "default" ? undefined : f })} aria-current={filter === f ? "true" : undefined} className={cn("rounded-full px-3 py-1 text-sm ring-1 ring-inset", filter === f ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
+    <Link href={href({ tab: "pages", filter: f === "default" ? undefined : f })} aria-current={filter === f ? "true" : undefined} className={cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", filter === f ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
       {label}
     </Link>
   );
@@ -1000,7 +1006,7 @@ async function NewsTab({ dealerId, sp, href, tz, counts, newsEnabled }: { dealer
   const page = Math.max(1, Number(sp.p) || 1);
   const { rows, total } = await getNews({ dealershipId: dealerId, status: status === "all" ? undefined : status, scope, page, pageSize: 25 });
   const settings = await getSettings();
-  const pill = (active: boolean) => cn("rounded-full px-3 py-1 text-sm ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50");
+  const pill = (active: boolean) => cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50");
   const chip = (label: string, s: string) => (
     <Link href={href({ tab: "news", scope, status: s })} aria-current={status === s ? "true" : undefined} className={pill(status === s)}>
       {label}

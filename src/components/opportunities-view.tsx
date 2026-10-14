@@ -145,9 +145,9 @@ function Header({ count, scanCompletedAt, tz }: { count: number | null; scanComp
 function OpportunityCard({ o, base }: { o: Opportunity; base: string }) {
   const p = PRIORITY[o.priority];
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", p.chip)}>
+        <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset", p.chip)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", p.dot)} aria-hidden />
           {p.label} priority
         </span>

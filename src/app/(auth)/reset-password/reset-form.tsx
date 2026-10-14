@@ -42,7 +42,7 @@ export function ResetForm({ token }: { token: string }) {
             type="button"
             onClick={() => setShow((v) => !v)}
             aria-pressed={show}
-            className="absolute inset-y-0 right-0 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800"
+            className="absolute inset-y-0 right-0 px-4 text-xs font-medium text-slate-500 transition hover:text-slate-800"
           >
             {show ? "Hide" : "Show"}
             <span className="sr-only"> password</span>

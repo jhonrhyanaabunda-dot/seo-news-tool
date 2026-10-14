@@ -86,7 +86,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <StatCard label="New news articles" value={summary.newNews} tone={summary.newNews ? "accent" : "neutral"} hint="Awaiting review" href="/news?status=new" />
       </div>
 
-      <div className="mb-6 mt-3 grid grid-cols-2 gap-y-1 rounded-lg border border-slate-200 bg-white px-1 py-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-6 mt-3 grid grid-cols-2 gap-y-1 rounded-lg border border-slate-200 bg-white px-1 py-1.5 shadow-[var(--shadow-card)] sm:grid-cols-3 lg:grid-cols-6">
         <MetaStat label="Coverage" value={`${summary.scanned}/${summary.totalDealerships}`} hint="Dealerships scanned" />
         <MetaStat label="Last scan" value={summary.lastScan ? fmtRelative(summary.lastScan, now) : "Never"} hint={summary.lastScan ? fmtDateTime(summary.lastScan, tz) : undefined} />
         <MetaStat
@@ -163,7 +163,7 @@ async function ClientLanding({ allowed, tz }: { allowed: number[]; tz: string })
       <ul className="grid gap-3 sm:grid-cols-2">
         {rows.map((r) => (
           <li key={r.id}>
-            <Link href={`/dealerships/${r.id}`} className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-300">
+            <Link href={`/dealerships/${r.id}`} className="block rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)] transition hover:border-brand-300">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-medium text-slate-900">{r.name}</span>
                 <span className="text-2xl font-semibold tracking-tight text-slate-900">{r.score ?? "—"}</span>

@@ -1,13 +1,26 @@
 @import "tailwindcss";
 
+/* ───────────────────────── Design system ─────────────────────────
+   One navy/blue brand scale, slate neutrals, and three status colours that
+   only ever mean status (good / warning / critical). Components use these
+   tokens; pages should not invent their own colours. */
 @theme {
-  --color-brand-50: #eef4ff;
-  --color-brand-100: #dbe7ff;
-  --color-brand-600: #1d4ed8;
-  --color-brand-700: #1e40af;
+  --color-brand-50: #eff4ff;
+  --color-brand-100: #dce6fd;
+  --color-brand-200: #bfd1fb;
+  --color-brand-300: #93b2f6;
+  --color-brand-400: #6189ee;
+  --color-brand-500: #3a66e3;
+  --color-brand-600: #1f4fd1;
+  --color-brand-700: #1a3fac;
+  --color-brand-800: #18357f;
   --color-brand-900: #0f2747;
+  --color-brand-950: #0a1a31;
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Quiet elevation: a hairline plus a soft shadow, never a glow. */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.03);
+  --shadow-raised: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.04);
 }
 
 :root {
@@ -15,31 +28,33 @@
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-[#f6f7f9] text-slate-900 antialiased;
+  font-feature-settings: "cv11", "ss01";
 }
 
 /* Visible, consistent keyboard focus everywhere. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--color-brand-600);
+  outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 @layer components {
+  /* Buttons: one height (36px), one radius, three intents. */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-[var(--shadow-card)] transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-brand-700 bg-brand-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-brand-700 bg-brand-600 px-3.5 text-sm font-medium text-white shadow-[var(--shadow-card)] transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-red-200 bg-white px-3.5 text-sm font-medium text-red-700 shadow-[var(--shadow-card)] transition-colors hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-sm {
-    @apply px-2 py-1 text-xs;
+    @apply h-7 px-2.5 text-xs;
   }
   .input {
-    @apply block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100;
+    @apply block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-[var(--shadow-card)] transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-brand-500 focus:outline-none focus:ring-3 focus:ring-brand-100;
   }
   .input-lg {
     @apply h-11 rounded-lg px-3.5 text-[15px];
@@ -61,199 +76,60 @@ body {
   .field-error {
     @apply mt-1 text-xs font-medium text-red-700;
   }
+  /* Tables: sentence-case headers, generous rows, numbers aligned. */
   .table-base {
     @apply min-w-full divide-y divide-slate-200 text-sm;
   }
   .table-base th {
-    @apply bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply bg-slate-50/80 px-4 py-2.5 text-left text-xs font-medium text-slate-500;
   }
   .table-base td {
-    @apply px-3 py-2.5 align-top text-slate-700;
+    @apply px-4 py-3 align-top text-slate-700 tabular-nums;
   }
   .table-base tbody tr {
-    @apply border-t border-slate-100;
+    @apply border-t border-slate-100 transition-colors hover:bg-slate-50/70;
+  }
+  /* Inline metadata (website · brand · city): a quiet dot between items. */
+  .dot-list > :not(:first-child)::before {
+    content: "·";
+    margin-right: 0.75rem;
+    color: var(--color-slate-300);
+  }
+  /* Small muted heading for a group of fields or figures. */
+  .eyebrow {
+    @apply text-xs font-medium text-slate-500;
   }
 }
 
 /* ───────────────────────── Signed-out pages ─────────────────────────
-   A photographic hero on the left (public/auth-hero.jpg when present) and a
-   quiet canvas on the right. The gradients stand in for the photo until one
-   is added, and tint it once there is one. */
+   A solid brand panel beside a plain canvas. Deliberately still: sign-in is a
+   doorway, not a show, and every animation here used to delay the form. */
 .auth-hero {
-  background-color: #0b1e3a;
-  background-image:
-    radial-gradient(40rem 26rem at 12% 6%, rgba(37, 99, 235, 0.42), transparent 68%),
-    linear-gradient(160deg, #0f2747 0%, #0b1e3a 52%, #071324 100%);
-}
-
-/* Keeps white text readable whatever the photo looks like. */
-.auth-hero-veil {
-  background:
-    linear-gradient(180deg, rgba(8, 18, 34, 0.78) 0%, rgba(8, 18, 34, 0.42) 38%, rgba(8, 18, 34, 0.86) 100%),
-    linear-gradient(90deg, rgba(8, 18, 34, 0.72) 0%, rgba(8, 18, 34, 0.18) 60%, rgba(8, 18, 34, 0.3) 100%);
+  background-color: var(--color-brand-950);
 }
 
 .auth-canvas {
-  background-color: #f4f6fa;
-  background-image:
-    radial-gradient(34rem 22rem at 70% -10%, rgba(37, 99, 235, 0.08), transparent 70%),
-    linear-gradient(180deg, #fafbfd 0%, #f2f4f9 100%);
+  background-color: #f6f7f9;
 }
 
 .auth-card {
-  box-shadow:
-    0 24px 48px -20px rgba(15, 39, 71, 0.22),
-    0 2px 8px -4px rgba(15, 39, 71, 0.12),
-    0 0 0 1px rgba(15, 39, 71, 0.06);
+  box-shadow: var(--shadow-raised), 0 0 0 1px rgb(15 23 42 / 0.06);
 }
 
-/* Form fields on the sign-in card: filled by default, white on focus. */
 @layer components {
   .auth-label {
-    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500;
+    @apply mb-1.5 block text-sm font-medium text-slate-700;
   }
   .auth-input {
-    @apply block h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 text-[15px] text-slate-900 transition placeholder:text-slate-400 focus:border-brand-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100;
+    @apply block h-11 w-full rounded-md border border-slate-300 bg-white px-3.5 text-[15px] text-slate-900 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-brand-500 focus:outline-none focus:ring-3 focus:ring-brand-100;
   }
   /* Chrome paints autofilled fields pale blue; keep the card's own styling. */
   .auth-input:-webkit-autofill,
   .auth-input:-webkit-autofill:hover,
   .auth-input:-webkit-autofill:focus {
     -webkit-text-fill-color: var(--color-slate-900);
-    -webkit-box-shadow: 0 0 0 1000px var(--color-slate-50) inset;
+    -webkit-box-shadow: 0 0 0 1000px #fff inset;
     caret-color: var(--color-slate-900);
-  }
-}
-
-/* Sign-in entrance: content rises into place once, left side first.
-   Skipped entirely for anyone who asks for less motion. */
-@keyframes auth-rise {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .auth-rise {
-    /* `backwards` holds the start state during the delay, so nothing flashes first. */
-    animation: auth-rise 560ms cubic-bezier(0.22, 0.8, 0.3, 1) backwards;
-  }
-}
-
-/* A slow glint travelling across the brand panel, like light on glass. */
-@keyframes auth-shine {
-  0% {
-    transform: translateX(-65%) rotate(8deg);
-  }
-  45%,
-  100% {
-    transform: translateX(65%) rotate(8deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .auth-panel::after {
-    content: "";
-    position: absolute;
-    inset: -40% -55%;
-    pointer-events: none;
-    background: linear-gradient(100deg, transparent 38%, rgba(255, 255, 255, 0.13) 50%, transparent 62%);
-    animation: auth-shine 9s ease-in-out 1.4s infinite;
-  }
-}
-
-/* The hero arrives from the right and settles into its half of the screen. */
-@keyframes auth-hero-slide {
-  from {
-    opacity: 0;
-    transform: translateX(55%);
-  }
-  60% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .auth-hero-enter {
-    /* Slow and eased out, so the panel glides rather than snaps. */
-    animation: auth-hero-slide 1500ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-}
-
-/* ───────────────────────── Sign-in intro ─────────────────────────
-   Plays once after a successful sign-in: the mark settles, a bar fills
-   beneath it, then the white veil lifts and the app rises in behind it. */
-@keyframes intro-mark-in {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes intro-bar-fill {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-
-@keyframes intro-lift {
-  to {
-    opacity: 0;
-    transform: translateY(-14px);
-  }
-}
-
-@keyframes app-rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.intro-mark {
-  animation: intro-mark-in 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.intro-bar {
-  transform-origin: left center;
-  animation: intro-bar-fill 1000ms cubic-bezier(0.4, 0, 0.2, 1) 120ms both;
-}
-
-.intro-greeting {
-  animation: intro-mark-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 260ms both;
-}
-
-.intro-leaving {
-  animation: intro-lift 520ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  /* Sidebar, top bar and page content arrive just behind the veil. */
-  .app-rise > aside {
-    animation: app-rise-in 600ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
-  }
-  .app-rise main {
-    animation: app-rise-in 600ms cubic-bezier(0.16, 1, 0.3, 1) 1040ms both;
   }
 }
 

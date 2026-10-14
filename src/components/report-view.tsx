@@ -22,7 +22,7 @@ export function ReportView({ findings: f, narrative: n, generator, generatorNote
       <Card title="Executive summary" description={`${generator === "ai" ? "AI-assisted summary of the crawler findings" : "Summary composed from the crawler findings"} · ${completedAt ? fmtDateTime(completedAt, tz) : ""}`}>
         <div className="flex flex-wrap items-start gap-6">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Overall health</div>
+            <div className="text-xs font-medium text-slate-500">Overall health</div>
             <ScoreBadge score={f.scan.score} size="lg" />
           </div>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
