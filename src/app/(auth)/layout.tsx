@@ -27,11 +27,6 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </>
         )}
 
-        {/* The logo's lettering is black, so it sits on a white plate rather than straight on the navy. */}
-        <div className="relative self-start rounded-lg bg-white px-5 py-3 shadow-[var(--shadow-raised)]">
-          <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-20 w-auto" />
-        </div>
-
         <div className="relative max-w-md">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight xl:text-4xl">SEO &amp; News Monitor</h1>
           <p className="mt-4 text-base leading-relaxed text-blue-100/80">
