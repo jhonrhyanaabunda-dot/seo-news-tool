@@ -1,0 +1,35 @@
+# External uptime check every 15 minutes. GitHub emails the repository owner when a
+# scheduled run fails, so a failure here is the alert:
+#   - the live site or its database does not answer, or
+#   - no crawler worker has checked in for 20 minutes (scans have stopped).
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Site, database and crawler
+        run: |
+          set -euo pipefail
+          body=""
+          for attempt in 1 2 3; do
+            if body=$(curl -fsS --max-time 30 https://a3-seo-monitor.vercel.app/api/health); then break; fi
+            echo "attempt $attempt failed"; body=""; sleep 20
+          done
+          if [ -z "$body" ]; then echo "::error::The site or its database is not answering."; exit 1; fi
+          echo "$body"
+          mins=$(echo "$body" | jq -r '.crawler.lastSeenMinutesAgo // "null"')
+          if [ "$mins" = "null" ] || [ "$mins" -gt 20 ]; then
+            echo "::error::No crawler worker has checked in for ${mins} minutes. Check the A3 SEO Worker task on the office PC."
+            exit 1
+          fi
+          echo "OK: site up, crawler seen ${mins} min ago"

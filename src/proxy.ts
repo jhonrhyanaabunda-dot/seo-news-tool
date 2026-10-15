@@ -37,8 +37,31 @@ export function proxy(request: NextRequest) {
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // HTTPS only, for two years, on this host and any subdomain.
+  res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  // Report-only first: browsers flag anything that would be blocked without breaking a page.
+  // Once a release shows no violations, rename the header to Content-Security-Policy to enforce it.
+  res.headers.set("Content-Security-Policy-Report-Only", CSP);
   return res;
 }
+
+/**
+ * Same-origin everything. Inline scripts and styles stay allowed because Next.js
+ * emits them for hydration; links to external sites are plain navigations, which
+ * a CSP does not restrict.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:png|svg|ico|jpg|jpeg|webp)).*)"],

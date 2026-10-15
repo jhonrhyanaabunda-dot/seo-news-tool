@@ -1,0 +1,34 @@
+# Runs on every push and pull request. Vercel deploys main on push, so a red run
+# here means production may have received a broken change: look at it first.
+name: CI
+
+on:
+  push:
+    branches: [main, "stage-*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      # Build with placeholder settings; the build never connects to a database.
+      - run: npx next build
+        env:
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:1/ci
+          AUTH_SECRET: ci-placeholder-secret-0000000000000
+          CRON_SECRET: ci-placeholder-secret-0000
+          APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"

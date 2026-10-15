@@ -126,3 +126,38 @@ test("every surface presents the last scan that read the site, for up to a week"
   assert.ok(read("src/components/client-dashboard.tsx").includes("{scan?.newerBlockedAt && ("));
   assert.ok(read("src/lib/queries/dashboard.ts").includes("r.newer_blocked_at"));
 });
+
+test("backups list tables parents-first, and a reference cycle cannot stall the order", async () => {
+  const { loadOrder } = await import("../scripts/backup-db");
+  const order = loadOrder(["seo_scans", "dealerships", "scan_pages", "users", "user_dealerships"], [
+    { child: "seo_scans", parent: "dealerships" },
+    { child: "scan_pages", parent: "seo_scans" },
+    { child: "user_dealerships", parent: "users" },
+    { child: "user_dealerships", parent: "dealerships" },
+  ]);
+  assert.deepEqual(order.length, 5);
+  assert.ok(order.indexOf("dealerships") < order.indexOf("seo_scans") && order.indexOf("seo_scans") < order.indexOf("scan_pages"));
+  assert.ok(order.indexOf("users") < order.indexOf("user_dealerships"));
+  // a ↔ b reference each other: both still appear, exactly once.
+  assert.deepEqual(loadOrder(["a", "b"], [{ child: "a", parent: "b" }, { child: "b", parent: "a" }]).sort(), ["a", "b"]);
+});
+
+test("a restore refuses the production database and non-empty targets", () => {
+  const src = read("scripts/restore-db.ts");
+  assert.ok(src.includes("TARGET_DATABASE_URL is the production database") && src.includes('values["to-production"]'));
+  assert.ok(src.includes("The target database already has dealerships; restore only into an empty database."));
+  const backup = read("scripts/backup-db.ts");
+  assert.ok(backup.includes('isolation level repeatable read read only'), "one consistent, read-only snapshot");
+  assert.ok(/SKIP = new Set\(\["sessions", "rate_limits", "site_cache"\]\)/.test(backup), "session tokens never sit in a backup");
+});
+
+test("responses carry HSTS and a report-only CSP; health reports crawler freshness without configuration", () => {
+  const proxy = read("src/proxy.ts");
+  assert.ok(proxy.includes('"Strict-Transport-Security", "max-age=63072000; includeSubDomains"'));
+  assert.ok(proxy.includes('"Content-Security-Policy-Report-Only", CSP') && proxy.includes("\"frame-ancestors 'none'\""));
+  const health = read("src/app/api/health/route.ts");
+  assert.ok(health.includes("crawler: { lastSeenMinutesAgo: mins }"));
+  assert.ok(!/region|hostname|worker_id|\bid\b,/.test(health.slice(health.indexOf("select floor"), health.indexOf("as mins"))), "a number only");
+  const uptime = read(".github/workflows/uptime.yml");
+  assert.ok(uptime.includes('cron: "*/15 * * * *"') && uptime.includes('[ "$mins" -gt 20 ]'));
+});

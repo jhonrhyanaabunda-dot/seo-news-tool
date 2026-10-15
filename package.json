@@ -18,7 +18,9 @@
     "crawler": "NODE_OPTIONS=--conditions=react-server tsx worker/index.ts",
     "test": "NODE_OPTIONS=--conditions=react-server tsx --test tests/*.test.ts",
     "vercel-build": "npm run db:migrate && next build",
-    "news:enrich": "NODE_OPTIONS=--conditions=react-server tsx scripts/enrich-news.ts"
+    "news:enrich": "NODE_OPTIONS=--conditions=react-server tsx scripts/enrich-news.ts",
+    "db:backup": "tsx scripts/backup-db.ts",
+    "db:restore": "tsx scripts/restore-db.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
