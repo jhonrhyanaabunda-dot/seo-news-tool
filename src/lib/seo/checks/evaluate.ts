@@ -64,6 +64,11 @@ export interface EvalSite {
   /** null = not checked (e.g. the scanner was blocked before fetching it). */
   sitemap: { found: boolean; urlCount: number } | null;
   importantPages: Array<{ key: string; label: string; found: boolean; url: string | null }>;
+  /**
+   * URLs that were over the slow-response threshold in the previous comparable scan.
+   * Undefined when there is no such scan to compare with (every slow page is then flagged).
+   */
+  previouslySlowUrls?: ReadonlySet<string>;
 }
 
 export interface IssueDraft {
@@ -233,7 +238,11 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
     if (!p.lang) flag("lang_missing", p, "The page does not declare its language.");
     if (p.responseTimeMs !== null) {
       applicable("slow_response");
-      if (p.responseTimeMs > THRESHOLDS.slowResponseMs) flag("slow_response", p, `The page took ${(p.responseTimeMs / 1000).toFixed(1)}s to download.`, { responseTimeMs: p.responseTimeMs });
+      // One reading over the threshold is often a network blip: it is flagged when it repeats in
+      // consecutive scans, or at once when it is far over (2×). Single blips made this check flap.
+      const slow = p.responseTimeMs > THRESHOLDS.slowResponseMs;
+      const confirmed = p.responseTimeMs > 2 * THRESHOLDS.slowResponseMs || !site.previouslySlowUrls || site.previouslySlowUrls.has(p.url);
+      if (slow && confirmed) flag("slow_response", p, `The page took ${(p.responseTimeMs / 1000).toFixed(1)}s to download.`, { responseTimeMs: p.responseTimeMs });
     }
     if (p.htmlBytes !== null) {
       applicable("large_html");

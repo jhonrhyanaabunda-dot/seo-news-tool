@@ -72,10 +72,24 @@ export function scoreArticle(text: string, keywords: RelevanceKeyword[]): Articl
     }
   }
 
+  // A city + "dealership" match is local dealership news — unless the article names another car
+  // make, in which case it is a different store's news ("Findlay Kia Las Vegas" for a Las Vegas
+  // Subaru dealership). With this brand named it is brand context; without it, not kept.
+  const storeHit = kindsHit.has("dealership") || kindsHit.has("group") || kindsHit.has("custom");
+  if (!storeHit && kindsHit.has("local")) {
+    const ownBrands = keywords.filter((k) => k.kind === "brand").map((k) => k.keyword);
+    if (namesOtherMake(text, ownBrands)) {
+      kindsHit.delete("local");
+      score -= KEYWORD_WEIGHTS.local;
+      if (!kindsHit.has("brand")) return noMatch();
+    }
+  }
   const scope: NewsScope = [...kindsHit].some((k) => k !== "brand") ? "dealership" : "brand";
   if (scope === "brand") {
     const brands = keywords.filter((k) => k.kind === "brand" && k.keyword.trim()).map((k) => k.keyword);
     if (isNotManufacturerNews(text, brands, topics)) return noMatch();
+    // Brand context is for U.S. dealerships: another market's recall or launch is not theirs.
+    if (isForeignMarketStory(text)) return noMatch();
   }
   return { score: Math.min(100, score + topicScore), matched, topics, scope };
 }
@@ -169,4 +183,49 @@ export function topicsFor(text: string): string[] {
 
 export function topicLabel(key: string): string {
   return TOPIC_RULES.find((r) => r.key === key)?.label ?? key;
+}
+
+/**
+ * A brand story about another country's market: recalls and launches there do not
+ * apply to a U.S. dealership. Matched on the headline/summary wording; the publisher's
+ * own domain is checked separately (isForeignPublisher), since many such stories are
+ * syndicated under neutral headlines.
+ */
+const FOREIGN_MARKET_PATTERN =
+  /\b(in SA|South Africa|South African|Australia|Australian|New Zealand|in NZ|in the UK|U\.K\.|United Kingdom|Britain|British|in India|Indian market|Malaysia|Philippines|Singapore|Ireland|Irish|in Canada|Canadian)\b/i;
+
+export function isForeignMarketStory(text: string): boolean {
+  return FOREIGN_MARKET_PATTERN.test(text);
+}
+
+/** Publisher hosts on another country's domain (caradvice.com.au, iol.co.za, autocar.co.uk …). */
+const FOREIGN_TLD = /\.(au|za|uk|nz|in|ie|sg|my|ph|ca)$/i;
+
+export function isForeignPublisher(...urls: Array<string | null | undefined>): boolean {
+  return urls.some((u) => {
+    if (!u) return false;
+    try {
+      return FOREIGN_TLD.test(new URL(u).hostname);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Car makes sold in the U.S., capitalised as headlines write them (so "ram" or "mini" in prose do not match). */
+const MAKES = [
+  "Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Buick", "Cadillac", "Chevrolet", "Chevy", "Chrysler", "Dodge",
+  "Ferrari", "Fiat", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "INFINITI", "Jaguar", "Jeep", "Kia", "Lamborghini",
+  "Land Rover", "Lexus", "Lincoln", "Lucid", "Maserati", "Mazda", "McLaren", "Mercedes", "Mercedes-Benz", "MINI", "Mitsubishi",
+  "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Rolls-Royce", "Subaru", "Tesla", "Toyota", "Volkswagen", "VW", "Volvo",
+];
+
+/** Whether the text names a car make other than the dealership's own brand(s). */
+export function namesOtherMake(text: string, ownBrands: string[]): boolean {
+  const own = ownBrands.map((b) => b.toLowerCase().replace(/[\s-]+/g, ""));
+  const isOwn = (make: string) => {
+    const m = make.toLowerCase().replace(/[\s-]+/g, "");
+    return own.some((o) => o === m || o.startsWith(m) || m.startsWith(o));
+  };
+  return MAKES.some((make) => !isOwn(make) && new RegExp(`(^|[^A-Za-z])${make.replace(/[-\s]/g, "[-\s]?")}($|[^A-Za-z])`).test(text));
 }

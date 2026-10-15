@@ -17,7 +17,7 @@ export interface PageResultInput {
   redirected?: boolean | null;
 }
 
-const NETWORK_CODES = new Set(["DNS", "CONNECTION", "TLS", "TOO_MANY_REDIRECTS", "UNKNOWN", "EMPTY_RESPONSE"]);
+const NETWORK_CODES = new Set(["DNS", "CONNECTION", "TLS", "TOO_MANY_REDIRECTS", "UNKNOWN", "EMPTY_RESPONSE", "INCOMPLETE_RENDER"]);
 const SKIP_CODES = new Set(["ROBOTS_BLOCKED", "REDIRECT_OFFSITE", "NOT_HTML", "DUPLICATE", "UNSAFE_URL"]);
 
 /** Returns null for a URL that has not been requested yet. */
@@ -55,6 +55,22 @@ export function isEmptyDocument(body: string | null): boolean {
   // A title, or content without text (images, links, frames, a meta refresh), means the document did arrive.
   if (/<title[\s>]|<(img|iframe|frameset|a)[\s>]|<meta[^>]+http-equiv=["']?refresh/i.test(body)) return false;
   return body.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, "").trim().length === 0;
+}
+
+/**
+ * A browser render read before the page finished building: the document has a
+ * body (navigation links, scripts) but no <title>, no viewport meta and no
+ * language — the whole <head> is missing. Every real dealer page has those, and
+ * scoring such a capture reported ten "missing" issues on a random page that the
+ * next scan then "resolved". Only applied to browser renders, so a genuinely bare
+ * page fetched over plain HTTP is still reported as it is.
+ */
+export function isIncompleteRender(body: string | null): boolean {
+  if (!body) return false;
+  const hasTitle = /<title[\s>][\s\S]*?\S[\s\S]*?<\/title>/i.test(body);
+  const hasViewport = /<meta[^>]+name=["']?viewport/i.test(body);
+  const hasLang = /<html[^>]*\slang=["']?[a-z]/i.test(body);
+  return !hasTitle && !hasViewport && !hasLang;
 }
 
 /** Pages whose content was read and analysed. */

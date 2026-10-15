@@ -13,7 +13,10 @@ import { activeProviders, fetchSourceFeed, type RawArticle } from "./providers";
 import { SOURCE_PRIORITY, scoreSourcedArticle } from "./source-rules";
 import { recordSourceFetch, sourcesForDealership } from "./sources";
 import { buildQueries, relevanceKeywords } from "./queries";
-import { isNearDuplicate, normalizeTitle, titleTokens, type NewsScope } from "./relevance";
+import { isForeignPublisher, isNearDuplicate, normalizeTitle, titleTokens, type NewsScope } from "./relevance";
+
+/** Sources configured for this dealership on purpose: their stories are not filtered by market. */
+const OFFICIAL_SOURCE_TYPES: ReadonlySet<NewsSourceType> = new Set(["dealership", "manufacturer", "crawl"]);
 import { publishedPrecision } from "./article-meta";
 import { enrichArticles } from "./enrich";
 
@@ -117,6 +120,8 @@ export async function runNewsScan(dealershipId: number): Promise<NewsScanResult>
     if (!titleKey) continue;
     const { score, matched, topics, scope } = scoreSourcedArticle(a.sourceType, `${a.title} ${a.summary ?? ""}`, entities);
     if (score === 0) continue; // unrelated to this dealership, another store's news, or excluded (e.g. obituaries)
+    // Brand context found by news search must be about the U.S. market; official feeds are trusted as configured.
+    if (scope === "brand" && !OFFICIAL_SOURCE_TYPES.has(a.sourceType) && isForeignPublisher(url, a.publisherUrl)) continue;
     scored.push({ a, url, urlHash: sha(url), titleKey, titleHash: sha(titleKey), score, matched, topics, scope });
   }
 

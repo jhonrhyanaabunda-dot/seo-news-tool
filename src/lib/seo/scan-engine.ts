@@ -31,7 +31,7 @@ import { loadSitemap } from "./sitemap";
 import { getCached, setCached } from "./site-cache";
 import { orderSitemapUrls, sitemapCandidates } from "./sitemap-seed";
 import { detectPlatform } from "./platform";
-import { classifyPageResult, isAnalyzed, isEmptyDocument, isProtected } from "./result-class";
+import { classifyPageResult, isAnalyzed, isEmptyDocument, isIncompleteRender, isProtected } from "./result-class";
 import { crawlerLog, shortUrl } from "@/lib/crawler/log";
 import { pageSpeedEnabled, runPageSpeed } from "./pagespeed";
 import { detectBlock } from "./block-detect";
@@ -41,7 +41,7 @@ import { evaluateScan, isOkHtmlPage, urlKey, type EvalPage } from "./checks/eval
 import { nextBlockState } from "./crawl-policy";
 import { computeOutcome } from "./outcome";
 import { computeScore } from "./scoring";
-import { isUnverifiableHost } from "./checks/config";
+import { isUnverifiableHost, THRESHOLDS } from "./checks/config";
 import { isBrokenLink } from "./links";
 import { IMPORTANT_PAGES, PAGE_TYPE_CAPS, classifyPath, isImportantType, isSameSite, looksLikeHtmlPage, normalizeUrl, pagePriority, requestUrl, canonicalHost, type PageType } from "./url";
 import { logScanEvent } from "./scans";
@@ -85,7 +85,9 @@ async function fetchPage(url: string, opts: Parameters<typeof safeFetch>[1], ren
   const res = await fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
   // An interrupted browser render can come back as a 200 with an empty document; one more try usually gets the page.
   // Only a real, empty 2xx document is retried; non-HTML (NOT_HTML, body null) and any error result are returned as they are.
-  if (opts?.headersOnly || res.errorCode || res.body === null || res.status === null || res.status < 200 || res.status >= 300 || !isEmptyDocument(res.body)) return res;
+  if (opts?.headersOnly || res.errorCode || res.body === null || res.status === null || res.status < 200 || res.status >= 300) return res;
+  // The same holds for a render read before the page had built its <head> (see isIncompleteRender).
+  if (!isEmptyDocument(res.body) && !(res.fetchMethod === "browser" && isIncompleteRender(res.body))) return res;
   await sleep(2000);
   return fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
 }
@@ -640,6 +642,13 @@ async function processPageResult(
       .where(eq(scanPages.id, row.id));
     return ok;
   }
+  if (res.fetchMethod === "browser" && isIncompleteRender(res.body)) {
+    await db
+      .update(scanPages)
+      .set({ ...base, status: "failed", errorCode: "INCOMPLETE_RENDER", errorMessage: "The page had not finished loading in the browser after two tries, so it was not analysed (not counted as an SEO issue)." })
+      .where(eq(scanPages.id, row.id));
+    return ok;
+  }
 
   const parsed = parsePage(res.body, finalUrl);
   const noindex = /noindex/i.test(parsed.robotsMeta ?? "") || /noindex/i.test(res.headers["x-robots-tag"] ?? "");
@@ -1021,7 +1030,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   const brokenLinks = oneRowPerTarget(await db.select().from(scanLinks).where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isBroken, true))));
   const [linkStats] = await db
     .select({
-      checked: sql<number>`count(*) filter (where ${scanLinks.checked} and ${scanLinks.errorCode} is distinct from 'UNVERIFIABLE')::int`,
+      checked: sql<number>`count(*) filter (where ${scanLinks.checked} and ${scanLinks.errorCode} is distinct from 'UNVERIFIABLE' and ${scanLinks.errorCode} is distinct from 'TIMEOUT')::int`,
     })
     .from(scanLinks)
     .where(eq(scanLinks.scanId, scan.id));
@@ -1064,6 +1073,16 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   }
 
   const evalPages: EvalPage[] = pages.map((p) => ({ ...p }));
+  // Slow pages of the previous comparable scan of this site, so one network blip is not reported (see evaluateScan).
+  const [prevScan] = await db
+    .select({ id: seoScans.id })
+    .from(seoScans)
+    .where(and(eq(seoScans.dealershipId, scan.dealershipId), ne(seoScans.id, scan.id), eq(seoScans.status, "completed"), eq(seoScans.detailsRetained, true), sql`${seoScans.outcome} is distinct from 'blocked'`, sql`${seoScans.websiteUrl} is not distinct from ${scan.websiteUrl}`))
+    .orderBy(desc(seoScans.completedAt))
+    .limit(1);
+  const previouslySlowUrls = prevScan
+    ? new Set((await db.select({ url: scanPages.url }).from(scanPages).where(and(eq(scanPages.scanId, prevScan.id), sql`${scanPages.responseTimeMs} > ${THRESHOLDS.slowResponseMs}`))).map((r) => r.url))
+    : undefined;
   const remote = state.remoteAudit && !state.remoteAudit.error ? state.remoteAudit : null;
   if (remote?.performance) pagespeed = remote.performance;
   const evaluation = remote ? evaluateRemoteAudit(remote) : evaluateScan(
@@ -1084,6 +1103,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
       // Unknown (not "missing") when the crawl or the sitemap request was refused.
       sitemap: crawlBlocked || siteChecks?.sitemap.blocked ? null : { found: siteChecks?.sitemap.found ?? false, urlCount: siteChecks?.sitemap.urlCount ?? 0 },
       importantPages,
+      previouslySlowUrls,
     },
   );
   const scored = computeScore(evaluation.checks);
