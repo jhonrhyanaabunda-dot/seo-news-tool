@@ -19,7 +19,7 @@ const FACTS = [
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-[1fr_1fr]">
-      <aside className="auth-hero relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex xl:p-14">
+      <aside className="auth-hero relative hidden flex-col justify-center gap-9 overflow-hidden p-10 text-white lg:flex xl:p-14">
         {heroExists && (
           <>
             <Image src={HERO} alt="" fill priority sizes="50vw" className="object-cover" />
@@ -27,7 +27,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </>
         )}
 
-        <div className="relative text-sm font-medium text-blue-200/90">A3 Brands</div>
+        {/* The logo's lettering is black, so it sits on a white plate rather than straight on the navy. */}
+        <div className="relative self-start rounded-lg bg-white px-5 py-3 shadow-[var(--shadow-raised)]">
+          <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-20 w-auto" />
+        </div>
 
         <div className="relative max-w-md">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight xl:text-4xl">SEO &amp; News Monitor</h1>
