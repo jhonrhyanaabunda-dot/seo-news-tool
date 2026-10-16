@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -36,7 +37,8 @@ export const checkStatusEnum = pgEnum("check_status", ["pass", "warn", "fail", "
 export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_relevant", "reviewed"]);
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
-export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf"]);
+/** "performance_snapshot": Core Web Vitals through PageSpeed Insights, at most weekly per dealership (seo/performance-job.ts). */
+export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot"]);
 export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
@@ -307,6 +309,50 @@ export interface PageDetails {
   twitterCard?: boolean;
   truncated?: boolean;
   clientRedirect?: { type: "meta" | "script"; target: string } | null;
+  /* ── Scanner track: hreflang, vehicle detail pages, NAP (stored in jsonb, no migration needed) ── */
+  /** <link rel="alternate" hreflang> annotations, resolved to absolute URLs (only stored when the page declares any). */
+  hreflang?: Array<{ lang: string; href: string }>;
+  /** Vehicle detail page facts (only stored for pages classified as vehicle_detail). */
+  vehicle?: VehiclePageFacts;
+  /** Dealership name/address/phone facts from schema and visible tel: links (only stored when found). */
+  nap?: NapFacts;
+}
+
+/** What a vehicle detail page says about the vehicle's identity, price and availability. See parser.ts. */
+export interface VehiclePageFacts {
+  /** VIN from schema, a labelled "VIN:" in the text, or the URL. Evidence that this really is a single-vehicle page. */
+  vin: string | null;
+  /** Vehicle/Car/Product structured data is present. */
+  hasVehicleSchema: boolean;
+  /** offers.price (or lowPrice / priceSpecification.price) from that structured data, or a product:price meta tag. */
+  schemaPrice: number | null;
+  /** A dollar amount of $1,000 or more in the main content (navigation, header and footer excluded). */
+  visiblePrice: boolean;
+  /** A price present only in the page's inline JavaScript data (rendered client-side). */
+  scriptPrice: boolean;
+  /** An explicit pricing statement instead of a number: "Call for price", "Unlock our best price"… */
+  priceStatement: boolean;
+  /** offers.availability, last path segment (e.g. "InStock", "SoldOut"). */
+  availability: string | null;
+  /** The main content says the vehicle has been sold / is no longer available. */
+  soldText: boolean;
+}
+
+/** One dealership entity declared in structured data on a page (departments excluded). */
+export interface NapEntity {
+  name: string | null;
+  /** 10 digits for US numbers, otherwise the digits as written. */
+  phone: string | null;
+  /** Display form of the PostalAddress. */
+  address: string | null;
+  /** Comparison key: "<street number>|<zip5>" when both are known, otherwise the normalised street + city. */
+  addressKey: string | null;
+}
+
+export interface NapFacts {
+  entities: NapEntity[];
+  /** tel: links and phone numbers in the header/footer (evidence only: dealers list sales, service and parts numbers). */
+  visiblePhones: string[];
 }
 
 export interface SiteChecksSummary {
@@ -472,6 +518,11 @@ export const scanLinks = pgTable(
     foundOn: jsonb("found_on").$type<string[]>().notNull().default([]),
     occurrences: integer("occurrences").notNull().default(1),
     anchorText: varchar("anchor_text", { length: 300 }),
+    /* ── Scanner track: where a redirecting link ends up (internal_link_redirects check) ── */
+    /** Final URL when the link target redirects (null = no redirect, or not known). */
+    finalUrl: varchar("final_url", { length: 2000 }),
+    /** Number of redirect hops to reach finalUrl. */
+    redirectHops: integer("redirect_hops"),
   },
   (t) => [uniqueIndex("scan_links_scan_url_idx").on(t.scanId, t.url), index("scan_links_scan_broken_idx").on(t.scanId, t.isBroken)],
 );
@@ -945,6 +996,56 @@ export const auditLogs = pgTable(
   ],
 );
 
+/* ───────────────── Core Web Vitals snapshots (scanner track) ──────────────── */
+
+export type WebVitalRating = "good" | "needs_improvement" | "poor";
+
+/** CrUX field data (real Chrome users, 75th percentile) returned by PageSpeed Insights when Google has enough traffic. */
+export interface FieldMetrics {
+  /** "url" = data for this exact page; "origin" = Google only had data for the whole site and returned that instead. */
+  scope: "url" | "origin";
+  lcpMs: number | null;
+  lcpCategory: WebVitalRating | null;
+  inpMs: number | null;
+  inpCategory: WebVitalRating | null;
+  cls: number | null;
+  clsCategory: WebVitalRating | null;
+  overall: WebVitalRating | null;
+}
+
+/**
+ * One PageSpeed Insights measurement of one page. Kept per dealership rather
+ * than as scan detail, so the speed trend survives scan detail pruning;
+ * maintenance removes rows older than the history retention period.
+ * Displayed only — never part of the SEO score.
+ */
+export const performanceSnapshots = pgTable(
+  "performance_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** Scan that triggered the measurement (null once retention deletes that scan). */
+    scanId: bigint("scan_id", { mode: "number" }).references(() => seoScans.id, { onDelete: "set null" }),
+    url: varchar("url", { length: 2000 }).notNull(),
+    /** "home", or "vdp" for one vehicle detail page when the scan crawled one. */
+    pageKind: varchar("page_kind", { length: 20 }).notNull().$type<"home" | "vdp">(),
+    strategy: varchar("strategy", { length: 10 }).notNull().default("mobile").$type<"mobile" | "desktop">(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Lighthouse lab metrics. */
+    performance: integer("performance"),
+    lcpMs: integer("lcp_ms"),
+    cls: real("cls"),
+    tbtMs: integer("tbt_ms"),
+    fcpMs: integer("fcp_ms"),
+    field: jsonb("field").$type<FieldMetrics>(),
+    /** Why no metrics were captured (API error, timeout…); null on success. */
+    error: text("error"),
+  },
+  (t) => [index("performance_snapshots_dealership_idx").on(t.dealershipId, t.capturedAt)],
+);
+
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
@@ -972,3 +1073,4 @@ export type SystemLog = typeof systemLogs.$inferSelect;
 export type CrawlerWorker = typeof crawlerWorkers.$inferSelect;
 export type ScanOutcome = (typeof scanOutcomeEnum.enumValues)[number];
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type PerformanceSnapshot = typeof performanceSnapshots.$inferSelect;

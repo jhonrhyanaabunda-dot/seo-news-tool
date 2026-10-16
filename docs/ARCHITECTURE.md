@@ -67,17 +67,18 @@ queued ─▶ init ─▶ crawl ─▶ links ─▶ finalize ─▶ completed
 1. **init** – fetch robots.txt (respecting `A3SEOMonitor` rules and `Crawl-delay`), fetch the homepage (following a cross-domain redirect), detect bot-protection challenges, load the XML sitemap (index + gzip aware), and seed the frontier: homepage links first, key dealership pages prioritised, a bounded sample of sitemap URLs last.
 2. **crawl** – one page at a time per site (politeness delay, default 750 ms), SSRF-validated on every redirect hop, 15 s timeout, 3 MB cap, one retry for transient failures. Frontier rows are `scan_pages` with `status = pending`, ordered by `(priority, depth, id)` so crawls are deterministic. Inventory-heavy sections are capped (e.g. 3 vehicle detail pages).
 3. **links** – every discovered link is stored once per scan (`scan_links`). Targets that were crawled inherit their result; a deterministic sample (top 150 internal / 100 external by occurrence) is status-checked. A link is **broken** only when the target demonstrably fails: HTTP 404/410, a 5xx server error, or (internal links) a DNS/connection/timeout failure. Responses of 401/403/429 mean the site's security refused the *check*, which is common on dealer platforms, so those links are recorded as "unverifiable". Social networks, marketplaces and manufacturer configurator domains (`UNVERIFIABLE_LINK_HOSTS`) are never checked, to avoid false alarms.
+   Link targets that redirect keep their final URL (`scan_links.final_url`, `redirect_hops`), from the check itself, from a crawled page that redirected, or from a reused result, for the `internal_link_redirects` check.
 4. **finalize** – the stored crawl is evaluated by a **pure function** (`evaluateScan`) into issues and check results, scored by `computeScore`, compared to the previous comparable scan by issue fingerprints, and persisted in one transaction. Alerts are created afterwards.
 
 A scan that keeps failing is retried with exponential backoff (3 attempts), then marked failed with a readable reason and a `scan_failed` alert. Jobs abandoned by a killed invocation are recovered after 15 minutes.
 
 ## 4. Deterministic scoring
 
-* Rules live in `src/lib/seo/checks/config.ts` (39 checks in 7 categories, with weights, severities, thresholds and deduction tiers).
+* Rules live in `src/lib/seo/checks/config.ts` (46 checks in 7 categories, with weights, severities, thresholds and deduction tiers).
 * Page-level checks deduct a fraction of their points according to the **share of pages affected** (tiered); site-level checks are pass/fail (key pages: proportional).
 * Category score = `100 × (1 − deducted / applicable points)`; overall = weighted mean of categories with applicable checks.
 * Inputs are only the stored crawl data — no clock, network or randomness — and crawl order is deterministic, so the same site under the same conditions produces the same score. Unit tests assert this.
-* Lighthouse (PageSpeed) results are shown but deliberately **excluded** from the score because they vary between runs.
+* Lighthouse (PageSpeed) results are shown but deliberately **excluded** from the score because they vary between runs. That includes the weekly Core Web Vitals snapshots (`performance_snapshots`, job type `performance_snapshot`, queued after a completed scan, at most once per `PERFORMANCE_SNAPSHOT_DAYS` per dealership, decided from stored timestamps).
 
 ## 5. Change detection
 
@@ -122,12 +123,13 @@ Defined in `src/lib/db/schema.ts`; SQL migrations in `drizzle/`.
 | `news_articles` | Articles per dealership with source, dates, relevance score/status, topics | **unique `(dealership, url_hash)`**, index on title hash |
 | `alerts` | Change events | **unique `dedupe_key`** |
 | `email_reports` | Every email attempt (digest / alert / test) | **unique `dedupe_key`** |
-| `jobs` | Durable job queue (types: seo_scan, news_scan, report, digest, alert, maintenance) | **partial unique `dedupe_key` for queued/running**, pick index |
+| `jobs` | Durable job queue (types: seo_scan, news_scan, report, digest, alert, maintenance, performance_snapshot, …) | **partial unique `dedupe_key` for queued/running**, pick index |
 | `news_sources` | Configured RSS/Atom feeds: dealership news, manufacturer newsrooms (optionally shared per brand), publisher feeds | unique `(coalesce(dealership, 0), lower(url))` |
 | `reports` | SEO reports: deterministic findings, grounded narrative, generator (ai/deterministic), input hash for reuse | index `(dealership, created_at)`, `(dealership, input_hash)` |
 | `report_runs` | One row per model call (status, tokens, duration) — the monthly AI budget | index `created_at` |
 | `settings` | App settings + atomic period markers | PK key |
 | `system_logs` | Persisted warnings/errors | index `(level, created_at)` |
+| `performance_snapshots` | PageSpeed Insights lab + CrUX field metrics per dealership (homepage + one VDP), kept for the retention period, not scored | index `(dealership, captured_at)` |
 | `rate_limits` | Fixed-window counters shared across instances | PK key |
 
 **Scale:** all hot queries are index-backed and per-dealership. Page/issue detail rows are kept for the 10 most recent scans per dealership (maintenance prunes older ones), while score history, counts and fingerprints are kept for the retention period — so storage grows with the number of dealerships, not with time.

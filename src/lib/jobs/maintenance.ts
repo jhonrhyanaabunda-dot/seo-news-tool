@@ -47,6 +47,8 @@ export async function runMaintenance() {
     await db.execute(sql`delete from news_articles where detected_at < now() - make_interval(days => ${days}::int) and relevance in ('new', 'not_relevant')`),
   );
   result.seoArticlesDeleted = await pruneSeoArticles(days);
+  // Speed snapshots outlive scan detail pruning (they are the trend), but not the history retention period.
+  result.performanceSnapshotsDeleted = count(await db.execute(sql`delete from performance_snapshots where captured_at < now() - make_interval(days => ${days}::int)`));
   result.alertsDeleted = count(await db.execute(sql`delete from alerts where created_at < now() - make_interval(days => ${days}::int)`));
   result.emailsDeleted = count(await db.execute(sql`delete from email_reports where created_at < now() - make_interval(days => ${days}::int)`));
   result.jobsDeleted = count(await db.execute(sql`delete from jobs where status in ('completed','failed','cancelled') and created_at < now() - interval '30 days'`));

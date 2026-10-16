@@ -12,6 +12,7 @@ import { sendAlertEmail, sendDigests } from "@/lib/email/reports";
 import { runMaintenance } from "./maintenance";
 import { sendPasswordResetLink } from "@/lib/auth/password-reset";
 import { markReportFailed, runReportJob } from "@/lib/reports/service";
+import { runPerformanceSnapshotJob } from "@/lib/seo/performance-job";
 import { claimNextJob, completeJob, continueJob, failJobAttempt, recoverStaleJobs, type ClaimFilter, type JobType } from "./queue";
 import { scheduleDueWork } from "./scheduler";
 import { claimPeriod, releasePeriod } from "@/lib/settings";
@@ -33,7 +34,7 @@ async function releaseDigestPeriod(job: Job) {
 const MIN_REMAINING_MS = 30_000;
 /** A running job not heard from for this long is assumed dead (function killed). */
 const STALE_AFTER_MS = 15 * 60_000;
-const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf"];
+const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot"];
 /** Needs Chromium, so only a runner that crawls may claim it. */
 const BROWSER_TYPES: JobType[] = ["seo_scan", "report_pdf"];
 
@@ -216,6 +217,16 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
         }
         const r = await runReportJob(Number(job.payload.reportId));
         await completeJob(job.id, { reportId: Number(job.payload.reportId), ...r });
+        return "completed";
+      }
+      case "performance_snapshot": {
+        // PageSpeed Insights only (Google runs Lighthouse), so any runner can take it; it waits for a tick with enough time left.
+        const r = await runPerformanceSnapshotJob(job, deadline);
+        if (r.status === "deferred") {
+          await continueJob(job.id, 60_000);
+          return "continued";
+        }
+        await completeJob(job.id, { ...r });
         return "completed";
       }
       default:
