@@ -1,5 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
+import { adminMfaRequired } from "./mfa";
+import { mustEnrollMfa } from "./mfa-crypto";
 import { getCurrentUser, type SessionUser } from "./session";
 
 export class AuthError extends Error {
@@ -12,6 +14,9 @@ export class AuthError extends Error {
   }
 }
 
+/** Where an admin is sent to set up two-factor when the policy requires it. */
+export const MFA_ENROLL_PATH = "/account?mfa=required#two-factor";
+
 /** For pages: redirects to /login when signed out. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser();
@@ -19,10 +24,15 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** For pages: redirects unless the user is an admin. */
+/**
+ * For pages: redirects unless the user is an admin. With "Require two-factor
+ * for admins" on, an admin who has not enrolled is sent to the Account page
+ * instead — enforced here, server-side, not merely hidden in the navigation.
+ */
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "admin") redirect("/?error=forbidden");
+  if (mustEnrollMfa(user, await adminMfaRequired())) redirect(MFA_ENROLL_PATH);
   return user;
 }
 
@@ -36,5 +46,6 @@ export async function assertUser(): Promise<SessionUser> {
 export async function assertAdmin(): Promise<SessionUser> {
   const user = await assertUser();
   if (user.role !== "admin") throw new AuthError("Administrator access is required.", 403);
+  if (mustEnrollMfa(user, await adminMfaRequired())) throw new AuthError("Set up two-factor sign-in on your Account page before using administrator tools.", 403);
   return user;
 }

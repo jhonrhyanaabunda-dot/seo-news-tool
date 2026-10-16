@@ -168,6 +168,16 @@ export function SettingsForm({ settings, timezone }: { settings: AppSettings; ti
         </div>
       </fieldset>
 
+      <fieldset className="space-y-4">
+        <legend className="text-base font-semibold text-slate-900">Sign-in security</legend>
+        <Check
+          name="requireAdminMfa"
+          label="Require two-factor for admins"
+          description="Administrators without an authenticator app are sent to their Account page to set one up, and cannot use admin pages until they do. Set it up on your own account first."
+          defaultChecked={settings.requireAdminMfa}
+        />
+      </fieldset>
+
       <div className="flex justify-end border-t border-slate-100 pt-4">
         <button type="submit" className="btn-primary" disabled={pending}>
           {pending ? "Saving…" : "Save settings"}

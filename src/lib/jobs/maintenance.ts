@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { pruneSeoArticles } from "@/lib/news/seo-industry";
 import { pruneExpiredPasswordResets } from "@/lib/auth/password-reset";
 import { pruneReportRenders } from "@/lib/reports/request-pdf";
+import { AUDIT_RETENTION_DAYS } from "@/lib/audit-shared";
 
 /** Scans per dealership whose page/issue detail rows are kept. Older scans keep their summary, score and fingerprints. */
 export const DETAIL_SCANS_KEPT = 10;
@@ -50,6 +51,8 @@ export async function runMaintenance() {
   result.emailsDeleted = count(await db.execute(sql`delete from email_reports where created_at < now() - make_interval(days => ${days}::int)`));
   result.jobsDeleted = count(await db.execute(sql`delete from jobs where status in ('completed','failed','cancelled') and created_at < now() - interval '30 days'`));
   result.logsDeleted = count(await db.execute(sql`delete from system_logs where created_at < now() - interval '90 days'`));
+  // The audit trail outlives operational logs (and the history setting): it answers "who did this?" months later.
+  result.auditLogsDeleted = count(await db.execute(sql`delete from audit_logs where created_at < now() - make_interval(days => ${AUDIT_RETENTION_DAYS}::int)`));
   // Crawler processes that stopped (restarts, redeploys) leave rows behind; a live crawler reports every few minutes.
   result.staleCrawlersDeleted = count(await db.execute(sql`delete from crawler_workers where last_seen_at < now() - make_interval(hours => ${STALE_CRAWLER_HOURS}::int)`));
   result.passwordResetsDeleted = await pruneExpiredPasswordResets();

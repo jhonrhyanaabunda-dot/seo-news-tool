@@ -11,7 +11,7 @@ A production web application that automatically monitors A3 dealership websites 
 - **AI-assisted SEO reports** — executive summary and prioritised actions written by Claude from stored crawler findings only; anything not matching the findings is discarded. Cached by input hash, capped per month (default 300), with a deterministic fallback.
 - **U.S. crawler workers & crawl-job API** — the dashboard stays on Vercel; crawling runs on a U.S. container worker (Fly.io, Render, Railway, AWS…) that pulls jobs from Postgres. `POST /api/crawl-jobs` queues work machine-to-machine.
 - **Change detection & email** — daily/weekly digests only when something meaningful changed, plus immediate alerts for critical problems. Duplicate-proof.
-- **Security** — authentication with roles, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint.
+- **Security** — authentication with roles, optional two-factor sign-in (authenticator app, can be required for admins), an admin audit log, an enforced Content Security Policy, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint, Dependabot and `npm audit` in CI.
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architecture, the Vercel feasibility analysis, the database schema and capacity figures.
 
@@ -348,6 +348,15 @@ See **`.env.example`** for the full, commented list. Required: `DATABASE_URL`, `
 * *Emails not arriving* → Settings → Send test email; check the System email log for the provider's error; verify the sending domain in Resend.
 * Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings).
 * Logs: structured JSON in Vercel's function logs. Warnings and errors are also stored in `system_logs`.
+
+### Security: two-factor sign-in, audit log, CSP
+
+* **Two-factor sign-in (TOTP).** Anyone can turn it on under **Account → Two-factor sign-in**: scan the QR code (or type the key) into an authenticator app, confirm with a code, and save the ten one-time recovery codes shown once. Sign-in then asks for a code after the password; no session exists until the code is accepted (a signed, five-minute pending cookie bridges the two steps). Codes are rate-limited, each code works once, and a recovery code can stand in for a lost phone. Secrets are encrypted at rest (AES-256-GCM; key from `MFA_ENCRYPTION_KEY`, or derived from `AUTH_SECRET`), recovery codes are stored hashed. A password reset never switches two-factor off.
+* **Requiring it for admins.** **Settings → Sign-in security → Require two-factor for admins** (off by default). While on, an administrator without two-factor is sent to Account after signing in and is refused every admin page and action until enrolled. Set it up on your own account first — the setting refuses to turn on otherwise.
+* **Lost phone and recovery codes.** Another administrator can use **Users → Reset 2FA**; the person then signs in with their password and enrols again. If the only administrator is locked out, run `npm run user:create -- --email … --name "…" --reset-2fa` against the production database (this also sets a new password). Keep `MFA_ENCRYPTION_KEY` (or `AUTH_SECRET` when it is unset) stable: changing it makes every enrolled authenticator unreadable, and everyone has to be reset.
+* **Audit log** (**Admin → Audit log**, also linked from System). Every administrative change — users, roles, passwords, two-factor, dealerships, keywords, news sources, SEO feeds, settings, scans, reports — plus sign-ins, failed sign-ins and sign-outs, with who, when, IP and browser. Filter by action or user. Never contains passwords, tokens, secrets or codes. Kept 365 days.
+* **Content Security Policy** is enforced (`src/lib/security/csp.ts`, sent by `src/proxy.ts`): same-origin scripts, styles, fonts and connections; images also from any `https:` URL; no framing. Adding a third-party script, font or API called from the browser means adding its origin there. Vercel preview deployments additionally allow the Vercel Toolbar.
+* **Dependencies:** Dependabot (`.github/dependabot.yml`) opens grouped minor/patch PRs weekly and GitHub Actions updates monthly; CI fails on high or critical advisories in production dependencies (`npm audit --omit=dev`).
 
 ## 14. Testing
 

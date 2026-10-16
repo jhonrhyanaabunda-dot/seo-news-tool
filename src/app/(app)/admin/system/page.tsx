@@ -73,11 +73,16 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         title="System"
         description="Background processing, failures and delivery logs."
         actions={
-          <form action={runTickNowAction}>
-            <SubmitButton className="btn" pendingText="Starting…">
-              Process queue now
-            </SubmitButton>
-          </form>
+          <>
+            <Link href="/admin/audit" className="btn">
+              Audit log
+            </Link>
+            <form action={runTickNowAction}>
+              <SubmitButton className="btn" pendingText="Starting…">
+                Process queue now
+              </SubmitButton>
+            </form>
+          </>
         }
       />
       {jobs.schedulerStale && (jobs.counts.queued ?? 0) > 0 && (

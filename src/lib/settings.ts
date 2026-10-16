@@ -44,6 +44,13 @@ export const settingsSchema = z.object({
   crawlerQuietHoursEnabled: z.boolean().default(true),
   crawlerQuietStartHour: z.coerce.number().int().min(0).max(23).default(21),
   crawlerQuietEndHour: z.coerce.number().int().min(0).max(23).default(7),
+  /**
+   * Administrators must use two-factor sign-in. An admin without it is sent to
+   * Account to set it up and refused every admin page and action until they do
+   * (enforced in `requireAdmin` / `assertAdmin`). Off by default so turning on
+   * a deploy never locks anyone out.
+   */
+  requireAdminMfa: z.boolean().default(false),
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;

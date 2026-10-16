@@ -61,7 +61,8 @@ export async function revokeAllSessions(userId: number) {
   await db.delete(sessions).where(eq(sessions.userId, userId));
 }
 
-export type SessionUser = Pick<User, "id" | "email" | "name" | "role">;
+/** `mfaEnabled`: two-factor sign-in is switched on for this account (used by the admin guard policy). */
+export type SessionUser = Pick<User, "id" | "email" | "name" | "role"> & { mfaEnabled: boolean };
 
 /** Resolve the current user from the cookie. Cached per request. */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
@@ -79,6 +80,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
       name: users.name,
       role: users.role,
       isActive: users.isActive,
+      totpEnabledAt: users.totpEnabledAt,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
@@ -89,5 +91,5 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     // fire-and-forget; not critical
     db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, row.sessionId)).catch(() => {});
   }
-  return { id: row.id, email: row.email, name: row.name, role: row.role };
+  return { id: row.id, email: row.email, name: row.name, role: row.role, mfaEnabled: row.totpEnabledAt !== null };
 });

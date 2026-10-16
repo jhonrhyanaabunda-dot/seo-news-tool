@@ -123,7 +123,7 @@ export async function getLastTestEmailError(): Promise<string | null> {
 
 export async function getUsers() {
   return db
-    .select({ id: users.id, email: users.email, name: users.name, role: users.role, isActive: users.isActive, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt })
+    .select({ id: users.id, email: users.email, name: users.name, role: users.role, isActive: users.isActive, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt, totpEnabledAt: users.totpEnabledAt })
     .from(users)
     .orderBy(users.name);
 }

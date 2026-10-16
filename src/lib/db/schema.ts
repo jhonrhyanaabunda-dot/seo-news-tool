@@ -67,6 +67,16 @@ export const users = pgTable(
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+
+    /* ── Security track: two-factor authentication (TOTP, RFC 6238). See src/lib/auth/mfa.ts. ── */
+    /** AES-256-GCM ciphertext of the base32 secret. Set (with enabled_at null) while enrolment is unconfirmed. */
+    totpSecretEnc: text("totp_secret_enc"),
+    /** When the user confirmed enrolment with a code. Null = two-factor is off. */
+    totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
+    /** Highest 30-second step already accepted, so a code cannot be replayed. */
+    totpLastStep: bigint("totp_last_step", { mode: "number" }),
+    /** HMAC hashes of the unused single-use recovery codes. */
+    totpRecoveryHashes: jsonb("totp_recovery_hashes").$type<string[]>().notNull().default([]),
   },
   (t) => [uniqueIndex("users_email_idx").on(sql`lower(${t.email})`)],
 );
@@ -904,6 +914,37 @@ export const siteCache = pgTable(
   (t) => [uniqueIndex("site_cache_host_kind_idx").on(t.host, t.kind)],
 );
 
+/* ────────────────────────────── Audit trail (security track) ───────── */
+
+/**
+ * Who changed what, for administrators. Written by `recordAudit()` in
+ * `src/lib/audit.ts`; never holds passwords, tokens, secrets or codes. The
+ * actor's email is a snapshot so a row stays readable after the user is
+ * deleted (the id is then nulled). Kept for `AUDIT_RETENTION_DAYS`.
+ */
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    actorUserId: integer("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: varchar("actor_email", { length: 320 }),
+    action: varchar("action", { length: 80 }).notNull(),
+    targetType: varchar("target_type", { length: 40 }),
+    targetId: varchar("target_id", { length: 64 }),
+    summary: text("summary").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 500 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("audit_logs_created_idx").on(t.createdAt),
+    index("audit_logs_target_idx").on(t.targetType, t.targetId),
+    index("audit_logs_actor_idx").on(t.actorUserId, t.createdAt),
+    index("audit_logs_action_idx").on(t.action, t.createdAt),
+  ],
+);
+
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
@@ -930,3 +971,4 @@ export type Job = typeof jobs.$inferSelect;
 export type SystemLog = typeof systemLogs.$inferSelect;
 export type CrawlerWorker = typeof crawlerWorkers.$inferSelect;
 export type ScanOutcome = (typeof scanOutcomeEnum.enumValues)[number];
+export type AuditLog = typeof auditLogs.$inferSelect;

@@ -143,12 +143,15 @@ With defaults (40 pages/scan, 750 ms politeness delay, 4 parallel jobs per tick,
 ## 9. Security
 
 * Authentication: bcrypt (cost 12), opaque DB-backed sessions (httpOnly, SameSite=Lax, Secure in production), revocable; login rate-limited per IP and per email.
+* Two-factor (optional per user; can be required for admins via the `requireAdminMfa` setting, default off): RFC 6238 TOTP implemented on `node:crypto` (`src/lib/auth/totp.ts`), ±1 step window, the last accepted step stored per user so a code cannot be replayed. The secret is AES-256-GCM encrypted with an HKDF-derived key (`MFA_ENCRYPTION_KEY` or `AUTH_SECRET`, user id as AAD); ten single-use recovery codes stored as HMAC hashes. After a correct password the server issues only a 5-minute HMAC-signed, httpOnly pending cookie (user id, remember flag, `next`, expiry, password-hash fingerprint); `/login/verify` creates the session after a valid code, rate-limited per account and IP. The admin requirement is enforced in `requireAdmin`/`assertAdmin`, not just the UI. QR codes are rendered by a small built-in encoder (`src/lib/qr.ts`) as inline SVG.
+* Audit trail: `audit_logs` (actor id + email snapshot, action, target, summary, scrubbed details, IP, user agent). `recordAudit()` (`src/lib/audit.ts`) never throws into the caller and redacts secret-looking keys; every admin/staff server action and sign-in/sign-out writes one. Shown at Admin → Audit log; pruned after 365 days by maintenance.
 * Authorization: `proxy.ts` gates every non-public route; every page and server action re-checks the session and role server-side (admin vs viewer).
 * Validation: zod schemas for every form and action; text is sanitised; emails and URLs normalised.
 * SSRF: only http(s) on ports 80/443, DNS resolution checked against private/link-local/metadata ranges (IPv4 + IPv6), re-validated on every redirect hop; applied to dealership URLs on save and to every fetch.
 * Cron endpoint: constant-time Bearer secret comparison; returns 401 otherwise.
 * Secrets only in environment variables, read by a `server-only` module so they cannot be bundled into client code.
-* Security headers (HSTS, frame deny, nosniff, referrer policy); the app is marked `noindex`.
+* Security headers: HSTS, frame deny, nosniff, referrer and permissions policy from `next.config.ts` (every path); an enforced Content-Security-Policy from `src/proxy.ts` (`src/lib/security/csp.ts`: same-origin scripts/styles/fonts/connections, `img-src 'self' data: blob: https:`, `frame-ancestors 'none'`, Vercel Toolbar on previews only). Each header has exactly one owner. The app is marked `noindex`.
+* Dependencies: Dependabot (npm weekly, minor/patch grouped; GitHub Actions monthly) and `npm audit --omit=dev --audit-level=high` in CI.
 
 ## 10. Regional crawlers, access restrictions & scan outcomes
 

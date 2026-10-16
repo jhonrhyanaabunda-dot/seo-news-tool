@@ -7,6 +7,7 @@ import { sendTrackedEmail } from "@/lib/email/send";
 import { renderPasswordResetEmail } from "@/lib/email/templates";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { recordAudit } from "@/lib/audit";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { hashPassword, validatePasswordStrength } from "./password";
 import { revokeAllSessions } from "./session";
@@ -101,10 +102,13 @@ export async function completePasswordReset(token: string, newPassword: string):
   const stored = Buffer.from(row.tokenHash);
   if (supplied.length !== stored.length || !timingSafeEqual(supplied, stored)) return { ok: false, error: "This link is not valid. Request a new one." };
 
-  await db.update(users).set({ passwordHash: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(users.id, row.userId));
+  // Only the password changes. Two-factor stays as it was, so an emailed link
+  // alone never gets anyone in: the next sign-in still asks for a code.
+  const [changed] = await db.update(users).set({ passwordHash: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(users.id, row.userId)).returning({ id: users.id, email: users.email });
   await db.update(passwordResets).set({ usedAt: new Date() }).where(eq(passwordResets.id, row.id));
   await revokeAllSessions(row.userId);
   await logger.info("auth", "Password reset completed", { userId: row.userId });
+  if (changed) await recordAudit({ actor: changed, action: "auth.password_reset_completed", target: { type: "user", id: changed.id }, summary: "Password reset with an emailed link" });
   return { ok: true };
 }
 

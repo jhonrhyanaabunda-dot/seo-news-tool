@@ -4,6 +4,8 @@
  *   npm run user:create -- --email you@example.com --name "Your Name" [--role admin|viewer] [--password "…"]
  *
  * Without --password a strong random password is generated and printed once.
+ * --reset-2fa also switches off two-factor sign-in for an existing account: the
+ * break-glass path when the only administrator has lost their phone and codes.
  * Run against production by pointing DATABASE_URL at the production database.
  */
 import "./load-env";
@@ -18,6 +20,7 @@ async function main() {
       name: { type: "string" },
       role: { type: "string", default: "admin" },
       password: { type: "string" },
+      "reset-2fa": { type: "boolean", default: false },
     },
   });
   if (!values.email || !values.name) throw new Error('Usage: npm run user:create -- --email you@example.com --name "Your Name" [--role admin|viewer]');
@@ -35,8 +38,9 @@ async function main() {
 
   const [existing] = await db.select().from(users).where(sql`lower(${users.email}) = ${email}`).limit(1);
   if (existing) {
-    await db.update(users).set({ name: values.name, role, passwordHash, isActive: true, updatedAt: new Date() }).where(eq(users.id, existing.id));
-    console.log(`Updated existing user ${email} (${role}).`);
+    const mfaReset = values["reset-2fa"] ? { totpSecretEnc: null, totpEnabledAt: null, totpLastStep: null, totpRecoveryHashes: [] } : {};
+    await db.update(users).set({ name: values.name, role, passwordHash, isActive: true, updatedAt: new Date(), ...mfaReset }).where(eq(users.id, existing.id));
+    console.log(`Updated existing user ${email} (${role}).${values["reset-2fa"] ? " Two-factor sign-in was switched off." : ""}`);
   } else {
     await db.insert(users).values({ email, name: values.name, role, passwordHash });
     console.log(`Created user ${email} (${role}).`);

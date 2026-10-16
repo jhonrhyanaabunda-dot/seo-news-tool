@@ -13,6 +13,17 @@ const schema = z.object({
   DATABASE_URL_UNPOOLED: z.string().optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   AUTH_SECRET: z.string().min(16, "AUTH_SECRET must be at least 16 characters"),
+  /**
+   * Optional key material for encrypting two-factor secrets at rest. Unset: a
+   * key is derived from AUTH_SECRET (HKDF). Set it to rotate AUTH_SECRET without
+   * re-enrolling everyone — changing it invalidates every enrolled authenticator.
+   * Generate with: openssl rand -base64 32
+   */
+  MFA_ENCRYPTION_KEY: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined)
+    .pipe(z.string().min(32, "MFA_ENCRYPTION_KEY must be at least 32 characters").optional()),
   APP_TIMEZONE: z.string().default("America/Chicago"),
   CRON_SECRET: z.string().min(16, "CRON_SECRET must be at least 16 characters"),
   CRON_TICK_BUDGET_SECONDS: z.coerce.number().int().min(10).max(780).default(240),

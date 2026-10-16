@@ -1,14 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { buildCsp, cspOptionsFromEnv } from "@/lib/security/csp";
 
 const SESSION_COOKIE = "a3_session";
 // API routes listed here authenticate with their own bearer secrets instead of a session cookie.
 const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/bot", "/api/health", "/api/cron", "/api/crawl-jobs"];
 
+/** Computed once per process: the policy only varies with the deployment (dev / Vercel preview). */
+const CSP = buildCsp(cspOptionsFromEnv());
+
 /**
- * Edge gate: redirects unauthenticated browser requests to /login and adds
- * baseline security headers. Real session validation (database lookup) happens
- * in server components / actions via `requireUser()` — this layer only checks
- * cookie presence so the edge stays fast and database-free.
+ * Edge gate: redirects unauthenticated browser requests to /login and enforces
+ * the Content Security Policy. Real session validation (database lookup)
+ * happens in server components / actions via `requireUser()` — this layer only
+ * checks cookie presence so the edge stays fast and database-free.
+ *
+ * Header ownership: the static security headers (HSTS, nosniff, frame and
+ * referrer policy, permissions policy) are set once for every path in
+ * `next.config.ts`; only the CSP is set here, so no header is sent twice.
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -33,35 +41,10 @@ export function proxy(request: NextRequest) {
   }
 
   const res = NextResponse.next();
-  res.headers.set("X-Frame-Options", "DENY");
-  res.headers.set("X-Content-Type-Options", "nosniff");
-  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  // HTTPS only, for two years, on this host and any subdomain.
-  res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
-  // Report-only first: browsers flag anything that would be blocked without breaking a page.
-  // Once a release shows no violations, rename the header to Content-Security-Policy to enforce it.
-  res.headers.set("Content-Security-Policy-Report-Only", CSP);
+  // Enforced (no longer report-only). See src/lib/security/csp.ts for what it allows and why.
+  res.headers.set("Content-Security-Policy", CSP);
   return res;
 }
-
-/**
- * Same-origin everything. Inline scripts and styles stay allowed because Next.js
- * emits them for hydration; links to external sites are plain navigations, which
- * a CSP does not restrict.
- */
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join("; ");
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:png|svg|ico|jpg|jpeg|webp)).*)"],
