@@ -13,13 +13,14 @@ import { aiReportsConfigured } from "@/lib/reports/ai";
 import { aiReportsUsedThisMonth } from "@/lib/reports/service";
 import { retryJobAction, runTickNowAction } from "@/app/actions/settings";
 import { SubmitButton } from "@/components/client/submit-button";
+import { DataIntegrationsCard } from "@/components/integrations/system-card";
 import { Badge, Card, Notice, PageHeader, TableWrap, cn } from "@/components/ui";
 import { fmtDateTime, fmtRelative } from "@/components/format";
 
 export const metadata: Metadata = { title: "System" };
 export const dynamic = "force-dynamic";
 
-const JOB_LABEL: Record<string, string> = { seo_scan: "SEO scan", news_scan: "News check", digest: "Email summary", alert: "Critical alert email", maintenance: "Maintenance", report: "SEO report" };
+const JOB_LABEL: Record<string, string> = { seo_scan: "SEO scan", news_scan: "News check", digest: "Email summary", alert: "Critical alert email", maintenance: "Maintenance", report: "SEO report", gsc_sync: "Search Console sync", places_sync: "Google listing check", competitor_audit: "Competitor check" };
 
 export default async function SystemPage({ searchParams }: { searchParams: Promise<{ notice?: string; emails?: string }> }) {
   await requireAdmin();
@@ -147,6 +148,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-1 text-xs text-slate-500">Used for email schedules and displayed times.</p>
         </Card>
       </div>
+
+      <DataIntegrationsCard />
 
       <div className="space-y-5">
         <section>

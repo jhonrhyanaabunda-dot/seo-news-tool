@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import type { Dealership } from "@/lib/db/schema";
 import type { DealershipFormState } from "@/app/actions/dealerships";
+import { IntegrationFields, type IntegrationFieldsConfig } from "./integration-fields";
 
 type Action = (prev: DealershipFormState, formData: FormData) => Promise<DealershipFormState>;
 
@@ -45,12 +46,15 @@ export function DealershipForm({
   defaultInterval,
   regions,
   defaultRegionLabel,
+  integrations,
 }: {
   action: Action;
   dealership?: Dealership;
   defaultInterval: number;
   regions: Array<{ id: string; label: string }>;
   defaultRegionLabel: string;
+  /** Search Console / Google listing fields (see integration-fields.tsx). */
+  integrations?: IntegrationFieldsConfig;
 }) {
   const [state, formAction, pending] = useActionState<DealershipFormState, FormData>(action, undefined);
   const e = state?.errors ?? {};
@@ -95,6 +99,15 @@ export function DealershipForm({
           <input id="sitemapUrl" name="sitemapUrl" type="url" inputMode="url" defaultValue={val("sitemapUrl", d?.sitemapUrl)} placeholder="https://" className="input" {...aria("sitemapUrl")} />
         </Field>
       </fieldset>
+
+      {integrations && (
+        <IntegrationFields
+          config={integrations}
+          values={{ gscProperty: String(val("gscProperty", d?.gscProperty)), googlePlaceId: String(val("googlePlaceId", d?.googlePlaceId)) }}
+          errors={{ gscProperty: e.gscProperty, googlePlaceId: e.googlePlaceId }}
+          searchDefault={[d?.name, d?.city, d?.state].filter(Boolean).join(", ")}
+        />
+      )}
 
       <fieldset>
         <legend className="mb-2 text-sm font-semibold text-slate-900">Notifications</legend>

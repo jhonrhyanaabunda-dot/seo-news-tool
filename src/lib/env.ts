@@ -110,6 +110,18 @@ const schema = z.object({
    * at most once per this many days per dealership. Needs PAGESPEED_API_KEY. 0 = off. Not scored.
    */
   PERFORMANCE_SNAPSHOT_DAYS: z.coerce.number().int().min(0).max(90).default(7),
+
+  /**
+   * Google Search Console (optional). A Google Cloud service account with the
+   * Search Console API enabled; add its email as a user on each property.
+   * Either the whole key file (JSON, or the JSON base64-encoded) …
+   */
+  GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** … or its two fields. The key may use escaped "\n" line breaks. */
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
+  /** Google listing signals via Places API (New) (optional). Restrict the key to that API. */
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
 
   /**

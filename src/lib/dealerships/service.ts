@@ -9,6 +9,7 @@ import { canonicalHost } from "@/lib/seo/url";
 import { env } from "@/lib/env";
 import { allRegions } from "@/lib/crawler/regions";
 import { looksLikeUrl } from "@/lib/news/queries";
+import { INTEGRATION_FORM_FIELDS, parseIntegrationFields } from "@/lib/integrations/form";
 
 const optionalText = (max: number) =>
   z
@@ -74,7 +75,7 @@ export const dealershipFormSchema = z.object({
   notes: optionalText(2000),
 });
 
-export type DealershipFormErrors = Partial<Record<keyof z.input<typeof dealershipFormSchema> | "form", string>>;
+export type DealershipFormErrors = Partial<Record<keyof z.input<typeof dealershipFormSchema> | (typeof INTEGRATION_FORM_FIELDS)[number] | "form", string>>;
 
 export async function validateDealershipForm(
   formData: FormData,
@@ -94,6 +95,9 @@ export async function validateDealershipForm(
     return { ok: false, errors };
   }
   const v = parsed.data;
+  // Search Console property and Google place id (src/lib/integrations/form.ts).
+  const integrations = parseIntegrationFields(formData);
+  if (!integrations.ok) return { ok: false, errors: integrations.errors };
   const emails = parseEmailList(v.notificationEmails);
   if (emails.invalid.length) return { ok: false, errors: { notificationEmails: `These addresses are not valid: ${emails.invalid.join(", ")}` } };
 
@@ -146,6 +150,7 @@ export async function validateDealershipForm(
       maxPages: v.maxPages,
       scanIntervalHours: v.scanIntervalHours,
       notes: v.notes,
+      ...integrations.data,
     },
   };
 }

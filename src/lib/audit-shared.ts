@@ -47,6 +47,9 @@ export const AUDIT_ACTIONS = {
   "report.generate": "Generated a report",
   "report.email": "Emailed a report",
   "report.pdf": "Requested a report PDF",
+  "competitor.add": "Added competitor",
+  "competitor.remove": "Removed competitor",
+  "integrations.sync_now": "Synced Search Console / Google listing now",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

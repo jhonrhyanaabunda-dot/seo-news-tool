@@ -16,6 +16,8 @@ import { listSourcesForAdmin } from "@/lib/news/sources";
 import { SOURCE_LABEL } from "@/lib/news/source-rules";
 import { SubmitButton } from "@/components/client/submit-button";
 import { Badge, Card, PageHeader } from "@/components/ui";
+import { CompetitorsCard } from "@/components/admin/competitors-card";
+import { integrationFieldsConfig } from "@/lib/integrations/config";
 
 export const metadata: Metadata = { title: "Edit dealership" };
 export const dynamic = "force-dynamic";
@@ -48,7 +50,7 @@ export default async function EditDealershipPage({ params }: { params: Promise<{
       />
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <DealershipForm action={updateDealershipAction} dealership={d} defaultInterval={settings.seoIntervalHours} regions={regions} defaultRegionLabel={regionLabel(env().DEFAULT_CRAWLER_REGION, regions)} />
+          <DealershipForm action={updateDealershipAction} dealership={d} defaultInterval={settings.seoIntervalHours} regions={regions} defaultRegionLabel={regionLabel(env().DEFAULT_CRAWLER_REGION, regions)} integrations={integrationFieldsConfig()} />
         </Card>
         <div className="space-y-5">
           <Card title="News keywords" description="Name, group, brand and city keywords are generated automatically. Add custom terms such as former names or key people.">
@@ -104,6 +106,7 @@ export default async function EditDealershipPage({ params }: { params: Promise<{
             )}
             <NewsSourceForm dealershipId={id} brand={d.brand} />
           </Card>
+          <CompetitorsCard dealershipId={id} />
           <Card title="Danger zone">
             <p className="mb-3 text-sm text-slate-600">Removing a dealership permanently deletes its scan history, issues and news. To pause monitoring instead, untick “Active”.</p>
             <form action={deleteDealershipAction}>

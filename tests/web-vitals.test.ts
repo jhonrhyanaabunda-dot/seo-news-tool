@@ -100,5 +100,5 @@ test("Core Web Vitals never feed the score, and degrade gracefully without an AP
   assert.ok(!/BROWSER_TYPES: JobType\[\] = \[[^\]]*performance_snapshot/.test(runner), "Google runs Lighthouse, so no browser is needed");
   const engine = read("src/lib/seo/scan-engine.ts");
   assert.ok(/if \(siteAvailable && !crawlBlocked\) \{\s*try \{\s*const targets = pickPerformanceTargets/.test(engine), "only completed, directly crawled scans queue a snapshot");
-  assert.ok(read("src/lib/db/schema.ts").includes('"report_pdf", "performance_snapshot"]'), "job type enum");
+  assert.ok(/jobTypeEnum = pgEnum\("job_type", \[[^\]]*"performance_snapshot"/.test(read("src/lib/db/schema.ts")), "job type enum");
 });

@@ -10,6 +10,7 @@ import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
 import { blockedBackoffHours, consecutiveBlocked, CRAWL_POLICY, needsBlockedRecheck } from "@/lib/seo/crawl-policy";
 import { createScanAndJob, logScanEvent } from "@/lib/seo/scans";
 import { enqueueJob } from "./queue";
+import { scheduleIntegrationWork } from "@/lib/integrations/sync";
 
 const MAX_SCANS_SCHEDULED_PER_TICK = 100;
 const MAX_NEWS_SCHEDULED_PER_TICK = 200;
@@ -27,7 +28,7 @@ const REGION_FALLBACK_MINUTES = 30;
  */
 export async function scheduleDueWork(now = new Date()) {
   const s = await getSettings();
-  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>> };
+  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>>, integrations: null as Awaited<ReturnType<typeof scheduleIntegrationWork>> | null };
   // Runs even while scheduling is paused: scans that are already queued can still be stranded.
   try {
     out.crawlerAlert = await checkCrawlerAvailability(now);
@@ -132,6 +133,13 @@ export async function scheduleDueWork(now = new Date()) {
     // Mark as scheduled so a failing source can't cause a retry storm every tick.
     await db.update(dealerships).set({ lastNewsScanAt: now }).where(eq(dealerships.id, id));
     if (jobId) out.newsQueued++;
+  }
+
+  // Search Console (daily), Google listing and competitor homepages (weekly); no-ops without credentials.
+  try {
+    out.integrations = await scheduleIntegrationWork(now);
+  } catch (err) {
+    await logger.error("scheduler", "Failed to queue data integration syncs", { error: errorMessage(err) });
   }
 
   const local = localParts(now, env().APP_TIMEZONE);

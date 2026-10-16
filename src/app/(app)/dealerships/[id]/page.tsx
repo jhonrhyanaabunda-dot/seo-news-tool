@@ -51,6 +51,8 @@ import { emailReportAction, generateReportAction } from "@/app/actions/reports";
 import { CategoryBars, ScoreHistoryChart } from "@/components/charts";
 import { SubmitButton } from "@/components/client/submit-button";
 import { ArticleList } from "@/components/article-list";
+import { SearchPerformanceTab } from "@/components/integrations/search-tab";
+import { loadSearchTab, searchTabAvailable } from "@/lib/integrations/queries";
 import { displayUrl, fmtDate, fmtDateTime, fmtDuration, fmtRelative } from "@/components/format";
 
 export const dynamic = "force-dynamic";
@@ -96,7 +98,10 @@ export default async function DealershipPage({ params, searchParams }: { params:
   // A dealership login gets the client-facing surfaces only; typing a staff tab
   // into the URL falls back to the overview rather than rendering it.
   const CLIENT_TABS = ["overview", "opportunities", "issues", "news", "reports"];
-  const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history"];
+  const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history", "search"];
+  // Search performance (Search Console, Google listing, competitors): for a dealership login only once something is connected.
+  const searchTab = !isClient(user) || (await searchTabAvailable(dealer));
+  if (isClient(user) && searchTab) CLIENT_TABS.push("search");
   const allowedTabs = isClient(user) ? CLIENT_TABS : STAFF_TABS;
   const tab = allowedTabs.includes(sp.tab ?? "") ? sp.tab! : "overview";
   const [{ latest, newerBlocked, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
@@ -233,11 +238,12 @@ export default async function DealershipPage({ params, searchParams }: { params:
           { key: "issues", label: isClient(user) ? "Findings" : "SEO issues", href: href({ tab: "issues" }), count: issueCounts ? issueCounts.bySeverity.critical + issueCounts.bySeverity.warning + issueCounts.bySeverity.info : null },
           { key: "pages", label: "Pages", href: href({ tab: "pages" }), count: latest?.pagesScanned ?? null },
           { key: "protected", label: "Protected pages", href: href({ tab: "protected" }), count: latest ? latest.pagesBlocked + latest.pagesNotEvaluated || null : null },
+          { key: "search", label: "Search performance", href: href({ tab: "search" }) },
           { key: "news", label: "News", href: href({ tab: "news" }), count: newsCounts.new || null },
           { key: "reports", label: "Reports", href: href({ tab: "reports" }) },
           { key: "history", label: "Crawl history", href: href({ tab: "history" }) },
           // Crawl diagnostics are A3's working surfaces, not a dealership's.
-        ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports"].includes(t.key))}
+        ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports", ...(searchTab ? ["search"] : [])].includes(t.key))}
       />
 
       {tab === "overview" &&
@@ -288,6 +294,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
           /> : <NoScanYet />)}
       {tab === "pages" && (latest ? <PagesTab scanId={latest.id} sp={sp} href={href} /> : <NoScanYet />)}
       {tab === "news" && <NewsTab dealerId={id} sp={sp} href={href} tz={tz} counts={newsCounts} newsEnabled={dealer.newsEnabled} />}
+      {tab === "search" && <SearchPerformanceTab dealer={dealer} data={await loadSearchTab(dealer)} isAdmin={user.role === "admin"} isClient={isClient(user)} tz={tz} sync={sp.sync} />}
       {tab === "protected" && (latest ? <ProtectedTab scanId={latest.id} jobStatus={crawlJobStatus(latest)} tz={tz} /> : <NoScanYet />)}
       {tab === "reports" && <ReportsTab dealerId={id} sp={sp} href={href} tz={tz} isAdmin={user.role === "admin"} hasScan={Boolean(latest)} />}
       {tab === "history" && <HistoryTab dealerId={id} sp={sp} href={href} tz={tz} currentSite={siteKey(dealer.websiteUrl)} />}

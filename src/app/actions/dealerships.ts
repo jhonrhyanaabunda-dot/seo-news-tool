@@ -13,10 +13,11 @@ import { changedKeys, recordAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { cancelScan, createScanAndJob } from "@/lib/seo/scans";
 import { getDealership } from "@/lib/queries/dealership";
+import { INTEGRATION_FORM_FIELDS } from "@/lib/integrations/form";
 
 export type DealershipFormState = { errors?: DealershipFormErrors; values?: Record<string, string> } | undefined;
 
-const FORM_FIELDS = ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes"];
+const FORM_FIELDS = ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes", ...INTEGRATION_FORM_FIELDS];
 const submitted = (fd: FormData) => Object.fromEntries(FORM_FIELDS.map((k) => [k, String(fd.get(k) ?? "")]));
 
 const idSchema = z.coerce.number().int().positive();

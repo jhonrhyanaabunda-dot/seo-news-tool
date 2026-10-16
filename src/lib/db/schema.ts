@@ -4,6 +4,8 @@ import {
   bigserial,
   customType,
   boolean,
+  date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -38,7 +40,9 @@ export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_r
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
 /** "performance_snapshot": Core Web Vitals through PageSpeed Insights, at most weekly per dealership (seo/performance-job.ts). */
-export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot"]);
+export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot",
+  // Data integrations: Search Console (daily), Google listing via Places (weekly), competitor homepage audit (weekly).
+  "gsc_sync", "places_sync", "competitor_audit"]);
 export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
@@ -160,6 +164,11 @@ export const dealerships = pgTable(
     detectedPlatform: varchar("detected_platform", { length: 60 }),
     /** Sitemap to use first, when the site's sitemap is not at /sitemap.xml or listed in robots.txt. */
     sitemapUrl: varchar("sitemap_url", { length: 500 }),
+    /* ── Data integrations (see src/lib/integrations/) ── */
+    /** Search Console property, e.g. "sc-domain:example.com" or "https://www.example.com/". Null = not connected. */
+    gscProperty: varchar("gsc_property", { length: 300 }),
+    /** Google Places (New) place id of the dealership's Google Business Profile listing. Null = not connected. */
+    googlePlaceId: varchar("google_place_id", { length: 300 }),
     /** Last scan that evaluated at least one page (completed or partial). */
     lastSuccessfulScanAt: timestamp("last_successful_scan_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
@@ -1046,6 +1055,167 @@ export const performanceSnapshots = pgTable(
   (t) => [index("performance_snapshots_dealership_idx").on(t.dealershipId, t.capturedAt)],
 );
 
+/* ────────────────────────────── Data integrations ──────────────────── */
+/*
+ * Google Search Console, Google listing (Places API (New)) and competitor
+ * homepage comparisons. Informational signals shown beside the SEO score —
+ * never part of it. Code: src/lib/integrations/.
+ */
+
+export type IntegrationKind = "gsc" | "places";
+/** "ok" synced; "error" the last attempt failed (see last_error); "pending" queued but never synced. */
+export type IntegrationStatus = "ok" | "error" | "pending";
+
+/** Sync state per dealership and integration, so the UI can say what happened and why. */
+export const dealershipIntegrations = pgTable(
+  "dealership_integrations",
+  {
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 20 }).$type<IntegrationKind>().notNull(),
+    status: varchar("status", { length: 20 }).$type<IntegrationStatus>().notNull().default("pending"),
+    /** The property / place id the last attempt used; a different value on the dealership makes it due again. */
+    configKey: varchar("config_key", { length: 300 }),
+    lastScheduledAt: timestamp("last_scheduled_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Readable reason for the last failure (never contains credentials). */
+    lastError: text("last_error"),
+    /** Search Console: latest day with stored data (YYYY-MM-DD, Pacific time like Search Console). */
+    dataThrough: date("data_through", { mode: "string" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.dealershipId, t.kind] })],
+);
+
+/** Search Console daily totals (Search Analytics, dimension = date). Days without impressions have no row. */
+export const gscDaily = pgTable(
+  "gsc_daily",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** Property the row came from; rows of a previous property are deleted when it changes. */
+    property: varchar("property", { length: 300 }).notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    clicks: integer("clicks").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    /** 0–1, as returned by Google. */
+    ctr: doublePrecision("ctr").notNull().default(0),
+    /** Average position (1 = top of the results). */
+    position: doublePrecision("position"),
+  },
+  (t) => [uniqueIndex("gsc_daily_dealer_date_idx").on(t.dealershipId, t.date)],
+);
+
+/** Top queries and pages for the latest 28-day window (replaced on every sync). */
+export const gscTopItems = pgTable(
+  "gsc_top_items",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 10 }).$type<"query" | "page">().notNull(),
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    periodEnd: date("period_end", { mode: "string" }).notNull(),
+    key: text("key").notNull(),
+    clicks: integer("clicks").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    ctr: doublePrecision("ctr").notNull().default(0),
+    position: doublePrecision("position"),
+  },
+  (t) => [index("gsc_top_items_dealer_idx").on(t.dealershipId, t.kind, t.periodEnd)],
+);
+
+/** Compact Place Details payload kept with each snapshot (see integrations/places.ts). */
+export interface PlaceSnapshotData {
+  placeId: string;
+  name: string | null;
+  formattedAddress: string | null;
+  websiteUri: string | null;
+  nationalPhoneNumber: string | null;
+  googleMapsUri: string | null;
+  hasOpeningHours: boolean;
+}
+
+/** Weekly Google listing snapshots (Places API (New) Place Details). */
+export const placeSnapshots = pgTable(
+  "place_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    rating: doublePrecision("rating"),
+    reviewCount: integer("review_count"),
+    businessStatus: varchar("business_status", { length: 40 }),
+    data: jsonb("data").$type<PlaceSnapshotData>().notNull(),
+  },
+  (t) => [index("place_snapshots_dealer_idx").on(t.dealershipId, t.capturedAt)],
+);
+
+/** Competitor websites compared with a dealership's homepage (at most 3 per dealership). */
+export const competitors = pgTable(
+  "competitors",
+  {
+    id: serial("id").primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 200 }).notNull(),
+    websiteUrl: varchar("website_url", { length: 500 }).notNull(),
+    /** Normalised host (lowercase, no "www."). */
+    host: varchar("host", { length: 255 }).notNull(),
+    /** Google listing, found by name + website during the audit (when GOOGLE_PLACES_API_KEY is set). */
+    googlePlaceId: varchar("google_place_id", { length: 300 }),
+    lastAuditScheduledAt: timestamp("last_audit_scheduled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("competitors_dealership_idx").on(t.dealershipId), uniqueIndex("competitors_dealer_host_idx").on(t.dealershipId, t.host)],
+);
+
+/** Compact homepage metrics from one competitor audit (see integrations/competitor-metrics.ts). */
+export interface CompetitorMetrics {
+  httpStatus: number | null;
+  finalUrl: string | null;
+  https: boolean | null;
+  titleLength: number | null;
+  descriptionLength: number | null;
+  h1Present: boolean | null;
+  schemaTypes: string[] | null;
+  dealerSchema: boolean | null;
+  pageBytes: number | null;
+  responseMs: number | null;
+  mobileViewport: boolean | null;
+  rating: number | null;
+  reviewCount: number | null;
+  /** Google PageSpeed mobile performance (0–100), only when PAGESPEED_API_KEY is set. */
+  performance: number | null;
+}
+
+/** "ok" homepage read; "blocked" robots.txt or bot protection refused the monitor (never bypassed); "error" unreachable. */
+export type CompetitorSnapshotStatus = "ok" | "blocked" | "error";
+
+export const competitorSnapshots = pgTable(
+  "competitor_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    competitorId: integer("competitor_id")
+      .notNull()
+      .references(() => competitors.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    status: varchar("status", { length: 20 }).$type<CompetitorSnapshotStatus>().notNull(),
+    /** Readable reason when blocked or failed. */
+    error: text("error"),
+    metrics: jsonb("metrics").$type<CompetitorMetrics>().notNull(),
+  },
+  (t) => [index("competitor_snapshots_competitor_idx").on(t.competitorId, t.capturedAt)],
+);
+
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
@@ -1072,5 +1242,11 @@ export type Job = typeof jobs.$inferSelect;
 export type SystemLog = typeof systemLogs.$inferSelect;
 export type CrawlerWorker = typeof crawlerWorkers.$inferSelect;
 export type ScanOutcome = (typeof scanOutcomeEnum.enumValues)[number];
+export type DealershipIntegration = typeof dealershipIntegrations.$inferSelect;
+export type GscDaily = typeof gscDaily.$inferSelect;
+export type GscTopItem = typeof gscTopItems.$inferSelect;
+export type PlaceSnapshot = typeof placeSnapshots.$inferSelect;
+export type Competitor = typeof competitors.$inferSelect;
+export type CompetitorSnapshot = typeof competitorSnapshots.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type PerformanceSnapshot = typeof performanceSnapshots.$inferSelect;

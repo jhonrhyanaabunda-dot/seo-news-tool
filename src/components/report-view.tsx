@@ -4,6 +4,7 @@ import type { FindingArticle, FindingIssue, ReportFindings, ReportNarrative } fr
 import { topicLabel } from "@/lib/news/relevance";
 import { Badge, Card, ExternalLink, PriorityBadge, ScoreBadge } from "@/components/ui";
 import { displayUrl, fmtDateTime } from "@/components/format";
+import { ReportSearchSection } from "@/components/integrations/report-section";
 
 /**
  * A report as the reader sees it. Sections are rendered from the stored
@@ -81,6 +82,8 @@ export function ReportView({ findings: f, narrative: n, generator, generatorNote
           </div>
         )}
       </Card>
+
+      <ReportSearchSection findings={f} />
 
       <Card title="Protected pages" description="Could not be analyzed because the website restricted automated access. Not SEO issues.">
         {f.protectedPages.total === 0 ? (

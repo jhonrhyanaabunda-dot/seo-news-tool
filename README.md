@@ -36,6 +36,7 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architec
 15. [Crawl-job API](#15-crawl-job-api)
 16. [SEO reports (AI-assisted)](#16-seo-reports-ai-assisted)
 17. [Production deployment: Vercel + U.S. crawler worker](#17-production-deployment-vercel--us-crawler-worker)
+18. [Search Console, Google listing and competitors](#18-search-console-google-listing-and-competitors)
 
 ---
 
@@ -429,3 +430,38 @@ User (Philippines) → Vercel (Next.js dashboard + API + cron) → Postgres job 
 4. **Verify:** Admin → System → *Crawler regions* shows the worker online; "Scan now" on a dealership shows `[Crawler] …` lines in the worker logs and results on the dashboard within minutes.
 
 The worker needs no public endpoint and holds no state: it can be stopped, moved to another provider or scaled out at any time, and queued scans simply wait in Postgres (or fall back to the default region after 30 minutes).
+
+## 18. Search Console, Google listing and competitors
+
+Optional data shown on each dealership's **Search performance** tab (clients see it for their own dealership once something is connected), on the Admin → System page, and as a small "Search visibility" section in reports. None of it is part of the SEO score. Without the variables below every part shows "Not connected" and the app behaves exactly as before.
+
+| Source | What it shows | Schedule (job type) |
+|---|---|---|
+| Google Search Console (service account) | Clicks, impressions, CTR, average position — last 28 days vs the 28 days before, weekly trend, top 10 searches and pages | Daily (`gsc_sync`): ~16 months on the first sync, then the last 10 days again (data arrives 2–3 days late) |
+| Google listing via Places API (New) | Rating, review count and change vs ~30 days earlier, review trend, business status; flags when the listing's website is not the dealership's or the business is not operational | Weekly (`places_sync`) |
+| Competitors (up to 3 per dealership) | Homepage comparison: HTTPS, title, description, H1, dealer schema, viewport, HTML size, response time, plus Google rating/reviews and PageSpeed when configured | Weekly (`competitor_audit`): robots.txt + one homepage request, honest User-Agent; "blocked" when robots.txt or site security refuses, never bypassed |
+
+The jobs run at low priority on the normal queue (Vercel ticks or the worker; no browser needed), one dealership at a time with sequential API calls, so quotas are far from reached. Admins can force a refresh with **Sync now** on the tab.
+
+### Google Search Console
+
+1. In [Google Cloud console](https://console.cloud.google.com/) create (or pick) a project → **APIs & Services → Library** → enable **Google Search Console API**.
+2. **IAM & Admin → Service accounts → Create service account** (no roles needed) → open it → **Keys → Add key → Create new key → JSON**. Keep the file secret.
+3. Set the variable, e.g. on Vercel (**Project → Settings → Environment Variables**, Production): `GOOGLE_SERVICE_ACCOUNT_JSON` = the whole JSON file contents (or the file base64-encoded: `base64 -w0 key.json`). Alternatively set `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` (the `private_key` value; escaped `\n` is fine). Redeploy. Admin → System → *Search Console* should say **Connected** and show the service account email.
+4. For each dealership: in [Search Console](https://search.google.com/search-console) open the property → **Settings → Users and permissions → Add user** → the service account email, permission **Restricted**. (A property owner must do this.)
+5. In the app: **Edit dealership → Google data → Search Console property**, exactly as the property picker shows it: `sc-domain:example.com` for a domain property, or `https://www.example.com/` for a URL-prefix property. The first sync runs within one cron tick (about 10 minutes). A 403 error on the tab means step 4 is missing; 404 means the property name does not match.
+
+### Google listing (Places API (New))
+
+The Business Profile API needs special approval from Google, so listing data comes from the public Places API instead.
+
+1. In the same Google Cloud project, enable billing and **Places API (New)** (not the legacy "Places API").
+2. **APIs & Services → Credentials → Create credentials → API key** → **Restrict key → API restrictions → Places API (New)**. (No application restriction is needed: the key is only used server-side and sent as a header.)
+3. Set `GOOGLE_PLACES_API_KEY` on Vercel (and on the worker if it runs integration jobs) and redeploy.
+4. **Edit dealership → Google data → Find place** searches by name and city (admin only, rate-limited to 30 searches/hour); click **Use this** on the right listing and save. Place Details are requested with a minimal field mask (rating, review count, status, opening-hours presence, website, phone, address, Maps link) once a week.
+
+### Competitors
+
+**Edit dealership → Competitors**: add up to three competitor websites (validated like dealership URLs: public hosts only). Each is checked right away and then weekly. With `GOOGLE_PLACES_API_KEY` set, the competitor's Google listing is found by name + city and matched on its website host. With `PAGESPEED_API_KEY`, its mobile PageSpeed score is included. The dealership's own column comes from its latest scan (homepage row) and listing snapshot. This is a homepage comparison, not a competitor SEO score.
+
+Tables: `dealership_integrations` (sync status and readable last error per dealership), `gsc_daily`, `gsc_top_items`, `place_snapshots`, `competitors`, `competitor_snapshots`; columns `dealerships.gsc_property` and `dealerships.google_place_id`. Code: `src/lib/integrations/`.
