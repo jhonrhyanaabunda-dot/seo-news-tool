@@ -119,7 +119,7 @@ export function SettingsForm({ settings, timezone }: { settings: AppSettings; ti
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            <Check name="monthlyReportEnabled" label="Monthly SEO report" description="Off by default." defaultChecked={settings.monthlyReportEnabled} />
+            <Check name="monthlyReportEnabled" label="Monthly SEO report" description="Off by default. If this month's day and time have already passed when you turn it on, this month's reports go out on the next scheduler run." defaultChecked={settings.monthlyReportEnabled} />
           </div>
           <div>
             <label htmlFor="monthlyReportDay" className="label">

@@ -165,11 +165,14 @@ export async function scheduleDueWork(now = new Date()) {
     }
   }
   // Monthly SEO report: one claim per dealership per local month, same release-on-failure rule.
+  // A dealership with no completed scan is not due yet: there is nothing to report, and claiming
+  // it would use up its month. It becomes due once its first scan completes.
   const month = monthlyReportMonthDue(local, s);
   if (month) {
     const due = await db.execute<{ id: number }>(sql`
       select d.id from ${dealerships} d
       where d.is_active and d.seo_enabled
+        and exists (select 1 from seo_scans sc where sc.dealership_id = d.id and sc.status = 'completed')
         and not exists (select 1 from settings p where p.key = 'period:monthly-report:' || d.id::text and p.value = to_jsonb(${month}::text))
       order by d.id asc
       limit ${MAX_MONTHLY_REPORTS_PER_TICK}

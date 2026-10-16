@@ -33,12 +33,9 @@ export function proxy(request: NextRequest) {
     url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + request.nextUrl.search)}` : "";
     return NextResponse.redirect(url);
   }
-  if (pathname === "/login" && hasSession) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // No "/login → /" redirect on cookie presence here: a stale cookie (expired or
+  // revoked session) would bounce between / and /login forever. The login page
+  // itself sends signed-in users home after validating the session.
 
   const res = NextResponse.next();
   // Enforced (no longer report-only). See src/lib/security/csp.ts for what it allows and why.
