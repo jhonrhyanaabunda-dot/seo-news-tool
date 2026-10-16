@@ -42,8 +42,10 @@ export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "complet
 /** "performance_snapshot": Core Web Vitals through PageSpeed Insights, at most weekly per dealership (seo/performance-job.ts). */
 export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot",
   // Data integrations: Search Console (daily), Google listing via Places (weekly), competitor homepage audit (weekly).
-  "gsc_sync", "places_sync", "competitor_audit"]);
-export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
+  "gsc_sync", "places_sync", "competitor_audit",
+  // Monthly SEO report email per dealership (reports/monthly.ts).
+  "monthly_report"]);
+export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset", "monthly_report"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
   "site_unavailable",
@@ -71,6 +73,8 @@ export const users = pgTable(
     role: userRoleEnum("role").notNull().default("viewer"),
     isActive: boolean("is_active").notNull().default(true),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** Product track (onboarding): when a dealership login dismissed the first-visit welcome guide. Null = show it. */
+    onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 
@@ -173,6 +177,15 @@ export const dealerships = pgTable(
     lastSuccessfulScanAt: timestamp("last_successful_scan_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     notes: text("notes"),
+    /**
+     * Product track (branding). Shown on the report, the PDF and single-dealership
+     * emails; null falls back to A3 styling. The logo is only ever rendered as an
+     * <img> (browsers, mail clients and the PDF worker's Chromium) and is
+     * validated as https on a public host when saved. See dealerships/branding.ts.
+     */
+    logoUrl: varchar("logo_url", { length: 500 }),
+    /** "#RRGGBB". Text on it is chosen automatically (white or black) for contrast. */
+    brandColor: varchar("brand_color", { length: 7 }),
     lastSeoScanId: bigint("last_seo_scan_id", { mode: "number" }),
     lastSeoScanAt: timestamp("last_seo_scan_at", { withTimezone: true }),
     lastNewsScanAt: timestamp("last_news_scan_at", { withTimezone: true }),
@@ -770,6 +783,8 @@ export const reports = pgTable(
     generatorNote: text("generator_note"),
     requestedBy: integer("requested_by"),
     error: text("error"),
+    /** Product track (monthly report): local month "YYYY-MM" of a monthly report; null = on demand. */
+    periodMonth: varchar("period_month", { length: 7 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -1216,6 +1231,84 @@ export const competitorSnapshots = pgTable(
   (t) => [index("competitor_snapshots_competitor_idx").on(t.competitorId, t.capturedAt)],
 );
 
+/* ───────────── Product track: monthly history & issue workflow ─────────── */
+
+/** One check's footprint in a monthly snapshot (kept after the scan's detail rows are pruned). */
+export interface MonthlyCheckSummary {
+  checkKey: string;
+  severity: "critical" | "warning" | "info";
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  /** Distinct affected URLs (for link checks: distinct broken links). */
+  affectedPages: number;
+  /** At most 5, sorted. */
+  sampleUrls: string[];
+}
+
+/**
+ * Long-term monthly history. Page/issue detail rows are pruned after the 10
+ * newest scans, and scan rows after `retentionDays`; this keeps one compact
+ * summary per dealership per local month (APP_TIMEZONE) so a 12-month trend and
+ * a month-over-month issue comparison survive both. The latest comparable scan
+ * of the month wins. `scan_id` deliberately has no foreign key: the snapshot
+ * must outlive the scan it was taken from.
+ */
+export const seoMonthlySnapshots = pgTable(
+  "seo_monthly_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** "YYYY-MM" in APP_TIMEZONE. */
+    month: varchar("month", { length: 7 }).notNull(),
+    scanId: bigint("scan_id", { mode: "number" }).notNull(),
+    scanCompletedAt: timestamp("scan_completed_at", { withTimezone: true }).notNull(),
+    score: integer("score"),
+    categoryScores: jsonb("category_scores").$type<CategoryScores>(),
+    criticalCount: integer("critical_count").notNull().default(0),
+    warningCount: integer("warning_count").notNull().default(0),
+    infoCount: integer("info_count").notNull().default(0),
+    pagesScanned: integer("pages_scanned").notNull().default(0),
+    checks: jsonb("checks").$type<MonthlyCheckSummary[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("seo_monthly_snapshots_dealer_month_idx").on(t.dealershipId, t.month)],
+);
+
+export const ISSUE_WORKFLOW_STATUSES = ["open", "in_progress", "fixed", "ignored"] as const;
+export const issueStatusEnum = pgEnum("issue_status", ISSUE_WORKFLOW_STATUSES);
+
+/**
+ * Staff workflow state for one issue, keyed by its stable fingerprint so it
+ * carries across scans. Tracking only: the score is computed from what a scan
+ * finds and never reads this table. `verified_at` is set by a later full scan
+ * that evaluated the page and no longer found the issue; `reopened_at` when a
+ * scan still (or again) found an issue that was marked fixed.
+ */
+export const issueStates = pgTable(
+  "issue_states",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    checkKey: varchar("check_key", { length: 80 }).notNull(),
+    url: varchar("url", { length: 2000 }).notNull(),
+    status: issueStatusEnum("status").notNull().default("open"),
+    note: text("note"),
+    assignedTo: integer("assigned_to").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    fixedMarkedAt: timestamp("fixed_marked_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("issue_states_dealer_fingerprint_idx").on(t.dealershipId, t.fingerprint), index("issue_states_dealer_status_idx").on(t.dealershipId, t.status)],
+);
+
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
@@ -1242,6 +1335,9 @@ export type Job = typeof jobs.$inferSelect;
 export type SystemLog = typeof systemLogs.$inferSelect;
 export type CrawlerWorker = typeof crawlerWorkers.$inferSelect;
 export type ScanOutcome = (typeof scanOutcomeEnum.enumValues)[number];
+export type SeoMonthlySnapshot = typeof seoMonthlySnapshots.$inferSelect;
+export type IssueState = typeof issueStates.$inferSelect;
+export type IssueWorkflowStatus = (typeof ISSUE_WORKFLOW_STATUSES)[number];
 export type DealershipIntegration = typeof dealershipIntegrations.$inferSelect;
 export type GscDaily = typeof gscDaily.$inferSelect;
 export type GscTopItem = typeof gscTopItems.$inferSelect;

@@ -39,6 +39,8 @@ export async function saveSettingsAction(_prev: SettingsState, formData: FormDat
       newsAlertMinScore: z.coerce.number().int().min(1).max(100),
       newsLookbackDays: z.coerce.number().int().min(1).max(90),
       retentionDays: z.coerce.number().int().min(14).max(1095),
+      monthlyReportDay: z.coerce.number().int().min(1).max(28),
+      monthlyReportHour: z.coerce.number().int().min(0).max(23),
     })
     .safeParse(Object.fromEntries(formData));
   if (!input.success) return { error: "Please check the highlighted values: " + input.error.issues.map((i) => `${String(i.path[0])} ${i.message.toLowerCase()}`).join("; ") };
@@ -55,6 +57,7 @@ export async function saveSettingsAction(_prev: SettingsState, formData: FormDat
     instantAlertsEnabled: bool(formData.get("instantAlertsEnabled")),
     schedulerPaused: bool(formData.get("schedulerPaused")),
     requireAdminMfa,
+    monthlyReportEnabled: bool(formData.get("monthlyReportEnabled")),
     managementRecipients: emails.valid,
     newsletterRecipients: newsletterEmails.valid,
   });

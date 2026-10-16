@@ -23,6 +23,14 @@ export interface EmailMessage {
   text: string;
   /** Same key → the provider sends at most once (Resend honours it for 24 hours), even if a retry follows a lost response. */
   idempotencyKey?: string;
+  /** Files sent with the message (the monthly report PDF). Both real providers support them. */
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
 }
 
 export interface EmailProvider {
@@ -43,7 +51,15 @@ class ResendProvider implements EmailProvider {
       if (wait > 0) await sleep(wait);
       lastResendAt = Date.now();
       const { data, error } = await this.client.emails.send(
-        { from: env().EMAIL_FROM, to: [m.to], subject: m.subject, html: m.html, text: m.text, ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}) },
+        {
+          from: env().EMAIL_FROM,
+          to: [m.to],
+          subject: m.subject,
+          html: m.html,
+          text: m.text,
+          ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}),
+          ...(m.attachments?.length ? { attachments: m.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) } : {}),
+        },
         m.idempotencyKey ? { idempotencyKey: m.idempotencyKey } : undefined,
       );
       if (!error) return { id: data?.id ?? null };
@@ -72,7 +88,15 @@ class SmtpProvider implements EmailProvider {
   });
   async send(m: EmailMessage) {
     try {
-      const info = await this.transport.sendMail({ from: env().EMAIL_FROM, to: m.to, subject: m.subject, html: m.html, text: m.text, ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}) });
+      const info = await this.transport.sendMail({
+        from: env().EMAIL_FROM,
+        to: m.to,
+        subject: m.subject,
+        html: m.html,
+        text: m.text,
+        ...(env().EMAIL_REPLY_TO ? { replyTo: env().EMAIL_REPLY_TO } : {}),
+        ...(m.attachments?.length ? { attachments: m.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) } : {}),
+      });
       return { id: info.messageId ?? null };
     } catch (err) {
       throw new Error(friendlySmtpError(err as { code?: string; responseCode?: number; message?: string }, env().SMTP_HOST));
@@ -83,7 +107,8 @@ class SmtpProvider implements EmailProvider {
 class ConsoleProvider implements EmailProvider {
   name = "console";
   async send(m: EmailMessage) {
-    console.log(`\n──── EMAIL (console provider) ────\nTo: ${m.to}\nSubject: ${m.subject}\n\n${m.text}\n──────────────────────────────────\n`);
+    const files = m.attachments?.length ? `Attachments: ${m.attachments.map((a) => `${a.filename} (${a.contentType}, ${a.content.length} bytes)`).join(", ")}\n` : "";
+    console.log(`\n──── EMAIL (console provider) ────\nTo: ${m.to}\nSubject: ${m.subject}\n${files}\n${m.text}\n──────────────────────────────────\n`);
     return { id: `console-${Date.now()}` };
   }
 }

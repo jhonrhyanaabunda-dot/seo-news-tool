@@ -16,26 +16,33 @@ import { runPerformanceSnapshotJob } from "@/lib/seo/performance-job";
 import { runIntegrationJob } from "@/lib/integrations/sync";
 import { claimNextJob, completeJob, continueJob, failJobAttempt, recoverStaleJobs, type ClaimFilter, type JobType } from "./queue";
 import { scheduleDueWork } from "./scheduler";
-import { claimPeriod, releasePeriod } from "@/lib/settings";
+import { releaseFailedPeriod } from "@/lib/settings";
+import { periodClaimOf } from "./period-retry";
 
 /**
- * The scheduler claims a digest's day before the job runs, so a digest that
- * exhausted its attempts would otherwise never go out that day. Release the
- * claim once per day: the next tick queues a fresh job, recipients already
- * served are skipped by their dedupe keys, and a mail server that stays down
- * cannot turn this into a retry loop.
+ * The scheduler claims a digest's day (or a dealership's monthly-report month)
+ * before the job runs, so a job that exhausted its attempts would otherwise
+ * never run again that period. Hand the claim back a bounded number of times
+ * per period (MAX_PERIOD_RELEASES): the next tick queues a fresh job,
+ * recipients already served are skipped by their per-recipient dedupe keys,
+ * and a mail server that stays down cannot turn this into a retry loop.
  */
-async function releaseDigestPeriod(job: Job) {
-  const kind = job.payload.kind === "weekly" ? "weekly" : "daily";
-  const period = String(job.payload.periodKey);
-  if (await claimPeriod(`digest:${kind}:retry`, period)) await releasePeriod(`digest:${kind}`, period);
+async function releasePeriodAfterFailure(job: Job) {
+  const claim = periodClaimOf(job.type, job.payload);
+  if (!claim) return;
+  try {
+    const released = await releaseFailedPeriod(claim.key, claim.period);
+    await logger.warn("jobs", released ? `Released ${claim.key} for ${claim.period}; the next tick queues it again` : `${claim.key} for ${claim.period} failed again; no re-runs left for this period`, { jobId: job.id }, job.dealershipId ?? undefined);
+  } catch (err) {
+    await logger.error("jobs", "Could not release a failed job's period", { jobId: job.id, error: errorMessage(err) }, job.dealershipId ?? undefined);
+  }
 }
 
 /** Stop claiming new jobs when less than this much time is left. */
 const MIN_REMAINING_MS = 30_000;
 /** A running job not heard from for this long is assumed dead (function killed). */
 const STALE_AFTER_MS = 15 * 60_000;
-const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot", "gsc_sync", "places_sync", "competitor_audit"];
+const ALL_TYPES: JobType[] = ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot", "gsc_sync", "places_sync", "competitor_audit", "monthly_report"];
 /** Needs Chromium, so only a runner that crawls may claim it. */
 const BROWSER_TYPES: JobType[] = ["seo_scan", "report_pdf"];
 
@@ -119,6 +126,8 @@ export async function runTick(opts: { budgetMs: number; role: RunnerRole; worker
       if (job.type === "seo_scan" && typeof job.payload.scanId === "number") {
         await markScanFailed(job.payload.scanId, "The scan was interrupted repeatedly and could not be completed.");
       }
+      // A digest killed mid-run on its last attempt is as finally failed as one that threw.
+      await releasePeriodAfterFailure(job);
     }
   } catch (err) {
     await (isTransientNetworkError(err) ? logger.warn : logger.error)("jobs", "Stale job recovery failed", { error: errorMessage(err) });
@@ -205,6 +214,17 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
         await completeJob(job.id, r);
         return "completed";
       }
+      case "monthly_report": {
+        // Resumable: waits (briefly, then across ticks) for the PDF worker.
+        const { runMonthlyReportJob } = await import("@/lib/reports/monthly");
+        const step = await runMonthlyReportJob(job, deadline);
+        if (step.done) {
+          await completeJob(job.id, step.result);
+          return "completed";
+        }
+        await continueJob(job.id, step.deferMs);
+        return "continued";
+      }
       case "maintenance": {
         const r = await runMaintenance();
         await completeJob(job.id, r);
@@ -256,7 +276,7 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
     if (final && job.type === "report") {
       await markReportFailed(Number(job.payload.reportId), `The report could not be generated: ${message}`);
     }
-    if (final && job.type === "digest") await releaseDigestPeriod(job);
+    if (final) await releasePeriodAfterFailure(job);
     return "failed";
   }
 }

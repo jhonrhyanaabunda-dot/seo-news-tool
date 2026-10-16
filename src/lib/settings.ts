@@ -4,6 +4,7 @@ import { z } from "zod";
 import { inQuietHours, localParts } from "./local-time";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
+import { MAX_PERIOD_RELEASES, nextPeriodRelease } from "@/lib/jobs/period-retry";
 
 /**
  * Application-wide settings stored in the `settings` table (key "app"),
@@ -51,6 +52,15 @@ export const settingsSchema = z.object({
    * a deploy never locks anyone out.
    */
   requireAdminMfa: z.boolean().default(false),
+  /**
+   * Monthly SEO report email (with the PDF attached when the report worker is
+   * online), per dealership, to its contacts and the management recipients.
+   * Off by default. Day 1–28 so every month has it; sent at or after the hour
+   * (APP_TIMEZONE) on or after that day, once per dealership per month.
+   */
+  monthlyReportEnabled: z.boolean().default(false),
+  monthlyReportDay: z.coerce.number().int().min(1).max(28).default(1),
+  monthlyReportHour: z.coerce.number().int().min(0).max(23).default(8),
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -95,6 +105,27 @@ export async function claimPeriod(key: string, period: string): Promise<boolean>
  */
 export async function releasePeriod(key: string, period: string): Promise<void> {
   await db.delete(settings).where(and(eq(settings.key, `period:${key}`), sql`${settings.value} = ${JSON.stringify(period)}::jsonb`));
+}
+
+/**
+ * Release a period claim after the job it guarded failed permanently, at most
+ * `max` times per period (see jobs/period-retry.ts), so the next tick can
+ * enqueue a fresh job. Returns whether the claim was released.
+ *
+ * The release budget lives in its own settings row and is updated under a row
+ * lock, so two failures finishing at once cannot both spend the last release.
+ */
+export async function releaseFailedPeriod(key: string, period: string, max = MAX_PERIOD_RELEASES): Promise<boolean> {
+  const markerKey = `period-retry:${key}`;
+  const allowed = await db.transaction(async (tx) => {
+    await tx.insert(settings).values({ key: markerKey, value: { period, releases: 0 } }).onConflictDoNothing();
+    const [row] = await tx.select().from(settings).where(eq(settings.key, markerKey)).for("update").limit(1);
+    const next = nextPeriodRelease(row?.value, period, max);
+    if (next.allowed) await tx.update(settings).set({ value: next.marker, updatedAt: new Date() }).where(eq(settings.key, markerKey));
+    return next.allowed;
+  });
+  if (allowed) await releasePeriod(key, period);
+  return allowed;
 }
 
 export async function getPeriodMarker(key: string): Promise<string | null> {

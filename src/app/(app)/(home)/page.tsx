@@ -15,6 +15,9 @@ import { getSettings } from "@/lib/settings";
 import { EmptyState, MetaStat, Notice, PageHeader, StatCard } from "@/components/ui";
 import { DealershipTable, type DealerTableRow } from "@/components/client/dealership-table";
 import { fmtDateTime, fmtRelative } from "@/components/format";
+import { GettingStarted } from "@/components/getting-started";
+import { gettingStartedItems } from "@/lib/onboarding/checklist";
+import { getGettingStartedState } from "@/lib/queries/onboarding";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -36,7 +39,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // which of many sites needs A3's attention today.
   if (isClient(user)) return <ClientLanding allowed={allowed ?? []} tz={tz} />;
 
-  const [rows, settings] = await Promise.all([getDealerRows(allowed), getSettings()]);
+  const [rows, settings, setup] = await Promise.all([getDealerRows(allowed), getSettings(), user.role === "admin" ? getGettingStartedState() : Promise.resolve(null)]);
   const summary = await getDashboardSummary(rows, allowed);
   const now = summary.generatedAt;
 
@@ -73,6 +76,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           )
         }
       />
+
+      {setup && <GettingStarted items={gettingStartedItems(setup)} />}
 
       {/* The four numbers worth acting on. Everything else is context, below. */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">

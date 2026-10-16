@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { countByPriority, scopeLabel, type Opportunity } from "@/lib/seo/opportunity";
 import { DetailsPrunedNotice } from "@/components/detail-retention";
 import { EmptyState, cn } from "@/components/ui";
+import { IssueWorkflowEditor } from "@/components/issue-workflow";
 import { fmtDateTime } from "@/components/format";
 
 /**
@@ -37,6 +38,8 @@ export function OpportunitiesView({
   storedIssueTotal,
   tz,
   base,
+  ignored = [],
+  workflowEditor,
 }: {
   opportunities: Opportunity[];
   scanCompletedAt: Date | null;
@@ -45,7 +48,12 @@ export function OpportunitiesView({
   storedIssueTotal: number;
   tz: string;
   base: string;
+  /** Opportunities whose every finding staff marked "ignored": listed apart, still counted in the score. */
+  ignored?: Opportunity[];
+  /** Present for admins: lets them set the status of all of a check's findings at once. */
+  workflowEditor?: { dealershipId: number; assignees: Array<{ id: number; name: string }> };
 }) {
+  const ignoredSection = ignored.length > 0 && <IgnoredSection list={ignored} base={base} editor={workflowEditor} />;
   // Counts with no detail behind them mean the records were pruned, not that
   // the website is clean — the same disclosure rule as the issues tab.
   if (opportunities.length === 0 && !detailsRetained && storedIssueTotal > 0) {
@@ -65,6 +73,7 @@ export function OpportunitiesView({
           title="You're in good shape"
           description="No SEO opportunities need attention based on the latest check of this website. We check regularly and will flag anything new here."
         />
+        {ignoredSection}
       </div>
     );
   }
@@ -99,7 +108,7 @@ export function OpportunitiesView({
           </h2>
           <ul className="space-y-3">
             {top.map((o) => (
-              <OpportunityCard key={o.checkKey} o={o} base={base} />
+              <OpportunityCard key={o.checkKey} o={o} base={base} editor={workflowEditor} />
             ))}
           </ul>
         </section>
@@ -115,12 +124,49 @@ export function OpportunitiesView({
           </h2>
           <ul className="space-y-3">
             {rest.map((o) => (
-              <OpportunityCard key={o.checkKey} o={o} base={base} />
+              <OpportunityCard key={o.checkKey} o={o} base={base} editor={workflowEditor} />
             ))}
           </ul>
         </section>
       )}
+      {ignoredSection}
     </div>
+  );
+}
+
+/** Workflow progress on an opportunity's findings, in words ("2 fixed · 1 in progress"). */
+function workflowSummary(o: Opportunity): string | null {
+  const w = o.workflow ?? {};
+  const parts = [w.in_progress ? `${w.in_progress} in progress` : null, w.fixed ? `${w.fixed} marked fixed` : null, w.ignored ? `${w.ignored} ignored` : null].filter(Boolean);
+  return parts.length ? `${parts.join(" · ")} of ${o.findings} ${o.findings === 1 ? "finding" : "findings"}` : null;
+}
+
+function IgnoredSection({ list, base, editor }: { list: Opportunity[]; base: string; editor?: { dealershipId: number; assignees: Array<{ id: number; name: string }> } }) {
+  return (
+    <section className="opacity-75">
+      <h2 className="mb-1 text-sm font-semibold text-slate-700">
+        Ignored
+        <span className="ml-2 font-normal text-slate-500">
+          {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
+        </span>
+      </h2>
+      <p className="mb-2 text-xs text-slate-500">
+        Every finding of these was marked “ignored” by A3, so they are left out of the lists above. They are still counted in the SEO score, which is calculated from what each scan finds.
+      </p>
+      <ul className="space-y-2">
+        {list.map((o) => (
+          <li key={o.checkKey} className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-medium text-slate-700">{o.title}</span>
+              <span className="text-xs text-slate-500">
+                {PRIORITY[o.priority].label} priority · {scopeLabel(o)}
+              </span>
+            </div>
+            {editor && <IssueWorkflowEditor dealershipId={editor.dealershipId} checkKey={o.checkKey} state={null} assignees={editor.assignees} back={`${base}?tab=opportunities`} summary="Change status of all its findings" />}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -142,8 +188,9 @@ function Header({ count, scanCompletedAt, tz }: { count: number | null; scanComp
  * behind a disclosure so a list of fifteen stays scannable instead of becoming
  * a wall of scanner prose.
  */
-function OpportunityCard({ o, base }: { o: Opportunity; base: string }) {
+function OpportunityCard({ o, base, editor }: { o: Opportunity; base: string; editor?: { dealershipId: number; assignees: Array<{ id: number; name: string }> } }) {
   const p = PRIORITY[o.priority];
+  const progress = workflowSummary(o);
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
@@ -172,7 +219,14 @@ function OpportunityCard({ o, base }: { o: Opportunity; base: string }) {
           <dt className="inline font-medium text-slate-700">Scope: </dt>
           <dd className="inline text-slate-600">{scopeLabel(o)}</dd>
         </div>
+        {progress && (
+          <div>
+            <dt className="inline font-medium text-slate-700">Status: </dt>
+            <dd className="inline text-slate-600">{progress}</dd>
+          </div>
+        )}
       </dl>
+      {editor && <IssueWorkflowEditor dealershipId={editor.dealershipId} checkKey={o.checkKey} state={null} assignees={editor.assignees} back={`${base}?tab=opportunities`} summary="Set status for all its findings" />}
 
       <details className="group mt-2.5">
         <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded text-sm font-medium text-brand-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600">

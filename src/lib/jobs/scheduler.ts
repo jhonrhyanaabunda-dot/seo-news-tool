@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { dealerships } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { logger, errorMessage } from "@/lib/logger";
-import { claimPeriod, getSettings, localParts } from "@/lib/settings";
+import { claimPeriod, getSettings, localParts, releasePeriod } from "@/lib/settings";
+import { monthlyReportJob, monthlyReportMonthDue } from "@/lib/reports/monthly-schedule";
 import { onlineRegions } from "@/lib/crawler/heartbeat";
 import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
 import { blockedBackoffHours, consecutiveBlocked, CRAWL_POLICY, needsBlockedRecheck } from "@/lib/seo/crawl-policy";
@@ -16,6 +17,8 @@ const MAX_SCANS_SCHEDULED_PER_TICK = 100;
 const MAX_NEWS_SCHEDULED_PER_TICK = 200;
 /** Scan jobs waiting this long for an offline region fall back to the default region. */
 const REGION_FALLBACK_MINUTES = 30;
+/** Spreads a portfolio's monthly reports (and their PDF renders) over several ticks. */
+const MAX_MONTHLY_REPORTS_PER_TICK = 10;
 
 /**
  * Decide what is due and enqueue it. Safe to run from overlapping ticks:
@@ -28,7 +31,7 @@ const REGION_FALLBACK_MINUTES = 30;
  */
 export async function scheduleDueWork(now = new Date()) {
   const s = await getSettings();
-  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>>, integrations: null as Awaited<ReturnType<typeof scheduleIntegrationWork>> | null };
+  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], monthlyReports: 0, maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>>, integrations: null as Awaited<ReturnType<typeof scheduleIntegrationWork>> | null };
   // Runs even while scheduling is paused: scans that are already queued can still be stranded.
   try {
     out.crawlerAlert = await checkCrawlerAvailability(now);
@@ -148,19 +151,60 @@ export async function scheduleDueWork(now = new Date()) {
   if (await claimPeriod("industry-news", newsSlot)) {
     if (await enqueueJob({ type: "industry_news", dedupeKey: "industry-news", priority: 90, maxAttempts: 2 })) out.newsQueued++;
   }
-  if (s.dailyDigestEnabled && local.hour >= s.dailyDigestHour && (await claimPeriod("digest:daily", local.date))) {
-    await enqueueJob({ type: "digest", payload: { kind: "daily", periodKey: local.date }, dedupeKey: `digest:daily:${local.date}`, priority: 30, maxAttempts: 5 });
-    out.digests.push(`daily:${local.date}`);
+  // Digests: claimed per local date. If the job later fails permanently, the runner hands the
+  // date back a bounded number of times (jobs/period-retry.ts), so a failed digest is retried
+  // later the same day; per-recipient dedupe keys stop anyone already served getting it twice.
+  if (s.dailyDigestEnabled && local.hour >= s.dailyDigestHour) {
+    if (await claimAndEnqueue("digest:daily", local.date, { type: "digest", payload: { kind: "daily", periodKey: local.date }, dedupeKey: `digest:daily:${local.date}`, priority: 30, maxAttempts: 5 })) {
+      out.digests.push(`daily:${local.date}`);
+    }
   }
-  if (s.weeklyDigestEnabled && local.weekday === s.weeklyDigestWeekday && local.hour >= s.weeklyDigestHour && (await claimPeriod("digest:weekly", local.date))) {
-    await enqueueJob({ type: "digest", payload: { kind: "weekly", periodKey: local.date }, dedupeKey: `digest:weekly:${local.date}`, priority: 30, maxAttempts: 5 });
-    out.digests.push(`weekly:${local.date}`);
+  if (s.weeklyDigestEnabled && local.weekday === s.weeklyDigestWeekday && local.hour >= s.weeklyDigestHour) {
+    if (await claimAndEnqueue("digest:weekly", local.date, { type: "digest", payload: { kind: "weekly", periodKey: local.date }, dedupeKey: `digest:weekly:${local.date}`, priority: 30, maxAttempts: 5 })) {
+      out.digests.push(`weekly:${local.date}`);
+    }
+  }
+  // Monthly SEO report: one claim per dealership per local month, same release-on-failure rule.
+  const month = monthlyReportMonthDue(local, s);
+  if (month) {
+    const due = await db.execute<{ id: number }>(sql`
+      select d.id from ${dealerships} d
+      where d.is_active and d.seo_enabled
+        and not exists (select 1 from settings p where p.key = 'period:monthly-report:' || d.id::text and p.value = to_jsonb(${month}::text))
+      order by d.id asc
+      limit ${MAX_MONTHLY_REPORTS_PER_TICK}
+    `);
+    for (const row of due as unknown as Array<{ id: number }>) {
+      const id = Number(row.id);
+      try {
+        if (await claimAndEnqueue(`monthly-report:${id}`, month, monthlyReportJob(id, month))) out.monthlyReports++;
+      } catch (err) {
+        await logger.error("scheduler", "Failed to queue monthly report", { error: errorMessage(err), month }, id);
+      }
+    }
   }
   if (await claimPeriod("maintenance", local.date)) {
     await enqueueJob({ type: "maintenance", dedupeKey: `maintenance:${local.date}`, priority: 200, maxAttempts: 2 });
     out.maintenance = true;
   }
   return out;
+}
+
+/**
+ * Claim a period, then enqueue its job. If the enqueue itself fails (a dropped
+ * connection between the two statements), the claim is handed straight back:
+ * otherwise the period would be marked done with no job behind it, and nothing
+ * would run until the next period.
+ */
+async function claimAndEnqueue(key: string, period: string, job: Parameters<typeof enqueueJob>[0]): Promise<boolean> {
+  if (!(await claimPeriod(key, period))) return false;
+  try {
+    await enqueueJob(job);
+    return true;
+  } catch (err) {
+    await releasePeriod(key, period).catch(() => {});
+    throw err;
+  }
 }
 
 /** The earliest time any enabled dealership is next due for an SEO scan. */

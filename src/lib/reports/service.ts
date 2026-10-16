@@ -9,6 +9,7 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import { sendTrackedEmail } from "@/lib/email/send";
 import { renderReportEmail } from "@/lib/email/templates";
 import { getSettings } from "@/lib/settings";
+import { resolveBranding } from "@/lib/dealerships/branding";
 import { aiReportsConfigured, generateAiNarrative } from "./ai";
 import { buildFindings, findingsHash, getDealershipForReport } from "./findings";
 import { deterministicNarrative, groundNarrative } from "./ground";
@@ -162,6 +163,7 @@ export async function emailReport(report: Report): Promise<{ sent: number; faile
     newsSummary: narrative.newsSummary,
     reportUrl: `${base}/dealerships/${dealer.id}?tab=reports&report=${report.id}`,
     dashboardUrl: base,
+    branding: { ...resolveBranding(dealer), logoAlt: dealer.name },
   });
   const out = { sent: 0, failed: 0, skipped: 0, recipients: recipients.length };
   for (const to of recipients) {

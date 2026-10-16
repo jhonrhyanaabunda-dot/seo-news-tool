@@ -3,9 +3,9 @@
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Building2, Gauge, Loader2, Newspaper, Rss, ScrollText, ServerCog, Settings, Users } from "lucide-react";
+import { Building2, CircleHelp, Gauge, Loader2, Newspaper, Rss, ScrollText, ServerCog, Settings, Users } from "lucide-react";
 
-const ICONS = { dashboard: Gauge, news: Newspaper, seoNews: Rss, dealerships: Building2, settings: Settings, system: ServerCog, users: Users, audit: ScrollText };
+const ICONS = { dashboard: Gauge, news: Newspaper, seoNews: Rss, dealerships: Building2, settings: Settings, system: ServerCog, users: Users, audit: ScrollText, help: CircleHelp };
 
 /**
  * Inline spinner driven by the parent <Link>'s own pending state, so a click

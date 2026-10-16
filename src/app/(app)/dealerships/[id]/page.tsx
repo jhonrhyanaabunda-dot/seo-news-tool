@@ -54,6 +54,14 @@ import { ArticleList } from "@/components/article-list";
 import { SearchPerformanceTab } from "@/components/integrations/search-tab";
 import { loadSearchTab, searchTabAvailable } from "@/lib/integrations/queries";
 import { displayUrl, fmtDate, fmtDateTime, fmtDuration, fmtRelative } from "@/components/format";
+// Product track: issue workflow, monthly history, monthly report, branding.
+import { parseWorkflowFilter } from "@/lib/issues/workflow";
+import { getAssignableUsers, getIssueStates } from "@/lib/issues/states";
+import { IssueStatusBadge, IssueWorkflowEditor, WorkflowScoreNote } from "@/components/issue-workflow";
+import { MonthlyHistory } from "@/components/monthly-history";
+import { BrandHeader } from "@/components/brand-header";
+import { sendMonthlyReportNowAction } from "@/app/actions/monthly-report";
+import { monthLabel } from "@/lib/reports/monthly-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +89,8 @@ const NOTICES: Record<string, { tone: "success" | "info" | "warning"; text: stri
   "report-emailed": { tone: "success", text: "The report was emailed to the dealership's notification recipients and management recipients." },
   "report-email-failed": { tone: "warning", text: "Some report emails could not be delivered. See Admin → System for details." },
   "report-no-recipients": { tone: "warning", text: "No recipients: add notification emails to this dealership or management recipients in Settings." },
+  "monthly-queued-me": { tone: "success", text: "Monthly report queued. It is built and emailed to your own address within a few minutes; Admin → System shows the email log." },
+  "monthly-queued": { tone: "success", text: "Monthly report queued. It is built and emailed to this dealership's recipients and management within a few minutes." },
 };
 
 export default async function DealershipPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
@@ -278,12 +288,17 @@ export default async function DealershipPage({ params, searchParams }: { params:
             storedIssueTotal={latest.criticalCount + latest.warningCount}
             tz={tz}
             base={base}
+            ignored={(await getOpportunities(latest.id, { includeIgnored: true })).filter((o) => (o.ignoredFindings ?? 0) >= o.findings)}
+            workflowEditor={user.role === "admin" ? { dealershipId: id, assignees: await getAssignableUsers() } : undefined}
           />
         ) : (
           <NoScanYet />
         ))}
       {tab === "issues" && (latest ? <IssuesTab
             scanId={latest.id}
+            dealershipId={id}
+            canEdit={user.role === "admin"}
+            staff={!isClient(user)}
             sp={sp}
             href={href}
             tz={tz}
@@ -652,6 +667,9 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
 
 async function IssuesTab({
   scanId,
+  dealershipId,
+  canEdit,
+  staff,
   sp,
   href,
   tz,
@@ -661,6 +679,11 @@ async function IssuesTab({
   storedIssueTotal,
 }: {
   scanId: number;
+  dealershipId: number;
+  /** Admins change workflow status; viewers and dealership logins see it read-only. */
+  canEdit: boolean;
+  /** A3 staff also see assignee and notes. */
+  staff: boolean;
   sp: SP;
   href: (sp: SP) => string;
   tz: string;
@@ -678,12 +701,16 @@ async function IssuesTab({
     category: sp.category,
     pageId: sp.page ? Number(sp.page) : undefined,
     onlyNew: sp.new === "1",
+    workflow: parseWorkflowFilter(sp.wf),
     page,
     pageSize,
   });
   const filtered = sp.check ? rows.filter((r) => r.checkKey === sp.check) : rows;
-  const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1");
-  const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check };
+  const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1" || sp.wf);
+  const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check, wf: sp.wf };
+  const [states, assignees] = await Promise.all([getIssueStates(dealershipId, filtered.map((r) => r.fingerprint)), canEdit ? getAssignableUsers() : Promise.resolve([])]);
+  const assigneeName = new Map(assignees.map((u) => [u.id, u.name]));
+  const backHref = href({ ...keep, p: sp.p });
   const chip = (label: string, next: SP, active: boolean) => (
     <Link href={href({ ...keep, ...next, p: undefined })} aria-current={active ? "true" : undefined} className={cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
       {label}
@@ -711,6 +738,15 @@ async function IssuesTab({
         {chip("All categories", { category: undefined }, !sp.category)}
         {Object.entries(CATEGORIES).map(([k, v]) => (counts.byCategory[k] ? <span key={k}>{chip(`${v.label} (${counts.byCategory[k]})`, { category: k }, sp.category === k)}</span> : null))}
       </div>
+      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+        {chip("Any status", { wf: undefined }, !sp.wf)}
+        {chip("Open", { wf: "open" }, sp.wf === "open")}
+        {chip("In progress", { wf: "in_progress" }, sp.wf === "in_progress")}
+        {chip("Marked fixed", { wf: "fixed" }, sp.wf === "fixed")}
+        {chip("Came back", { wf: "reopened" }, sp.wf === "reopened")}
+        {chip("Ignored", { wf: "ignored" }, sp.wf === "ignored")}
+      </div>
+      <WorkflowScoreNote className="mb-4 max-w-3xl text-xs text-slate-500" />
       {(sp.page || sp.check) && (
         <Notice tone="info">
           Filtered to {sp.page ? "a single page" : CHECKS_BY_KEY[sp.check!]?.problem ?? sp.check}.{" "}
@@ -740,13 +776,16 @@ async function IssuesTab({
               <th scope="col">Page</th>
               <th scope="col">Recommended action</th>
               <th scope="col">Detected</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((i) => {
               const target = typeof i.details?.target === "string" ? i.details.target : null;
+              const state = states.get(i.fingerprint);
               return (
-                <tr key={i.id}>
+                // Ignored issues are de-emphasised, never hidden: they still count in the score.
+                <tr key={i.id} className={cn(state?.status === "ignored" && "opacity-60")}>
                   <td>
                     <div className="flex flex-col items-start gap-1">
                       <PriorityBadge priority={priorityFor(i.checkKey, i.severity)} />
@@ -774,6 +813,12 @@ async function IssuesTab({
                   </td>
                   <td className="max-w-sm text-slate-600">{i.recommendation}</td>
                   <td className="whitespace-nowrap text-slate-500">{fmtDate(i.firstDetectedAt, tz)}</td>
+                  <td className="min-w-[8rem] align-top">
+                    <IssueStatusBadge state={state} />
+                    {staff && state?.assignedTo && assigneeName.get(state.assignedTo) && <div className="mt-1 text-xs text-slate-500">Assigned: {assigneeName.get(state.assignedTo)}</div>}
+                    {staff && state?.note && <div className="mt-1 max-w-[14rem] break-words text-xs text-slate-500">{state.note}</div>}
+                    {canEdit && <IssueWorkflowEditor dealershipId={dealershipId} fingerprint={i.fingerprint} state={state} assignees={assignees} back={backHref} />}
+                  </td>
                 </tr>
               );
             })}
@@ -969,6 +1014,23 @@ async function ReportsTab({ dealerId, sp, href, tz, isAdmin, hasScan }: { dealer
           {aiReportsConfigured() ? `AI summaries this month: ${used} of ${limit}. Reports with unchanged findings are reused at no cost.` : "AI summaries are not configured; reports are composed directly from the findings."}
         </p>
         {pending && <p className="text-xs text-slate-500">A report is being prepared — refresh in a minute.</p>}
+        {isAdmin && (
+          <form action={sendMonthlyReportNowAction} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+            <input type="hidden" name="id" value={dealerId} />
+            <p className="text-xs font-medium text-slate-700">Monthly report email</p>
+            <label htmlFor="monthly-to" className="sr-only">
+              Send to
+            </label>
+            <select id="monthly-to" name="to" defaultValue="me" className="input !py-1 !text-sm">
+              <option value="me">Only me (test)</option>
+              <option value="recipients">This dealership&apos;s recipients</option>
+            </select>
+            <SubmitButton className="btn btn-sm w-full" pendingText="Queuing…" confirm="Build this month's report and email it now?">
+              Send monthly report now
+            </SubmitButton>
+            <p className="text-xs text-slate-500">Includes the PDF when the report worker is online. Does not replace the scheduled monthly send.</p>
+          </form>
+        )}
         <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-sm">
           {list.length === 0 && <li className="p-3 text-slate-500">No reports yet.</li>}
           {list.map((r) => (
@@ -979,6 +1041,7 @@ async function ReportsTab({ dealerId, sp, href, tz, isAdmin, hasScan }: { dealer
                   {statusBadge(r.status)}
                 </div>
                 {r.status === "completed" && <div className="text-xs text-slate-500">{r.generator === "ai" ? "AI-assisted" : "Standard"}</div>}
+                {r.periodMonth && <div className="text-xs text-slate-500">Monthly report · {monthLabel(r.periodMonth)}</div>}
               </Link>
             </li>
           ))}
@@ -1003,6 +1066,7 @@ async function ReportsTab({ dealerId, sp, href, tz, isAdmin, hasScan }: { dealer
                 </SubmitButton>
               </form>
             )}
+            <BrandHeader dealership={(await getDealership(dealerId))!} />
             <ReportView findings={selected.findings as ReportFindings} narrative={selected.narrative as ReportNarrative} generator={selected.generator} generatorNote={selected.generatorNote} completedAt={selected.completedAt} tz={tz} />
           </>
         )}
@@ -1093,6 +1157,8 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
       <Card title="SEO score history">
         <ScoreHistoryChart points={points} />
       </Card>
+
+      <MonthlyHistory dealershipId={dealerId} tz={tz} />
 
       {selected && (
         <Card

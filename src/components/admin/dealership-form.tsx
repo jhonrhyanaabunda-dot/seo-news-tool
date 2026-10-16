@@ -116,6 +116,16 @@ export function DealershipForm({
         </Field>
       </fieldset>
 
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-2 text-sm font-semibold text-slate-900">Branding</legend>
+        <Field id="logoUrl" label="Logo URL" error={e.logoUrl} hint="Optional. An https image address on a public website (PNG or SVG works best). Shown on the SEO report, the PDF and this dealership's report emails.">
+          <input id="logoUrl" name="logoUrl" type="url" inputMode="url" maxLength={500} defaultValue={val("logoUrl", d?.logoUrl)} placeholder="https://" className="input" {...aria("logoUrl")} />
+        </Field>
+        <Field id="brandColor" label="Brand colour" error={e.brandColor} hint="Optional, as #RRGGBB. Used for report and email headers; text on it switches between white and black automatically so it stays readable.">
+          <input id="brandColor" name="brandColor" maxLength={7} defaultValue={val("brandColor", d?.brandColor)} placeholder="#0F2747" pattern="#[0-9a-fA-F]{6}" className="input font-mono" {...aria("brandColor")} />
+        </Field>
+      </fieldset>
+
       <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className="mb-2 text-sm font-semibold text-slate-900">Monitoring</legend>
         <Toggle name="seoEnabled" label="SEO monitoring" description="Crawl the website and track SEO issues and score." defaultChecked={chk("seoEnabled", d?.seoEnabled ?? true)} />

@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, ne, sql, type SQL } from
 import { db } from "@/lib/db";
 import { dealerships, newsArticles, newsKeywords, reports, scanEvents, scanPages, seoChecks, seoIssues, seoScans } from "@/lib/db/schema";
 import { presentedScanOrder } from "@/lib/seo/presented-scan";
+import type { WorkflowFilter } from "@/lib/issues/workflow";
 
 /**
  * Cached per request: the layout reads it to decide whether the route exists and
@@ -90,8 +91,15 @@ export async function getIssueCounts(scanId: number) {
   return { bySeverity, byCategory };
 }
 
-export async function getIssues(scanId: number, opts: { severity?: string; category?: string; pageId?: number; onlyNew?: boolean; page: number; pageSize: number }) {
+export async function getIssues(scanId: number, opts: { severity?: string; category?: string; pageId?: number; onlyNew?: boolean; workflow?: WorkflowFilter | null; page: number; pageSize: number }) {
   const where: SQL[] = [eq(seoIssues.scanId, scanId)];
+  // Issue workflow filter (issue_states, keyed by dealership + fingerprint). No row means "open".
+  if (opts.workflow) {
+    const state = (cond: SQL) => sql`exists (select 1 from issue_states st where st.dealership_id = ${seoIssues.dealershipId} and st.fingerprint = ${seoIssues.fingerprint} and ${cond})`;
+    if (opts.workflow === "open") where.push(sql`not ${state(sql`st.status <> 'open'`)}`);
+    else if (opts.workflow === "reopened") where.push(state(sql`st.status = 'open' and st.reopened_at is not null`));
+    else where.push(state(sql`st.status = ${opts.workflow}`));
+  }
   if (opts.severity && ["critical", "warning", "info"].includes(opts.severity)) where.push(eq(seoIssues.severity, opts.severity as "critical" | "warning" | "info"));
   if (opts.category) where.push(eq(seoIssues.category, opts.category));
   if (opts.pageId) where.push(eq(seoIssues.pageId, opts.pageId));
@@ -229,7 +237,7 @@ export async function getProtectedPages(scanId: number) {
 
 export async function getReports(dealershipId: number) {
   return db
-    .select({ id: reports.id, status: reports.status, generator: reports.generator, createdAt: reports.createdAt, completedAt: reports.completedAt, scanId: reports.scanId, error: reports.error })
+    .select({ id: reports.id, status: reports.status, generator: reports.generator, createdAt: reports.createdAt, completedAt: reports.completedAt, scanId: reports.scanId, error: reports.error, periodMonth: reports.periodMonth })
     .from(reports)
     .where(eq(reports.dealershipId, dealershipId))
     .orderBy(desc(reports.createdAt))

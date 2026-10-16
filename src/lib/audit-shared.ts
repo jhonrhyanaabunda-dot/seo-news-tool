@@ -50,6 +50,8 @@ export const AUDIT_ACTIONS = {
   "competitor.add": "Added competitor",
   "competitor.remove": "Removed competitor",
   "integrations.sync_now": "Synced Search Console / Google listing now",
+  "issue.status": "Changed issue status",
+  "report.monthly_now": "Sent a monthly report now",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

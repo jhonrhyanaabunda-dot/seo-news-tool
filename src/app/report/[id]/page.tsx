@@ -12,6 +12,8 @@ import { countByPriority, scopeLabel, type Opportunity } from "@/lib/seo/opportu
 import { ScoreHistoryChart } from "@/components/charts";
 import { DownloadReportButton } from "@/components/client/download-report";
 import { fmtDate, fmtDateTime } from "@/components/format";
+import { BrandHeader } from "@/components/brand-header";
+import { getDealership } from "@/lib/queries/dealership";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,7 @@ export default async function PrintReportPage({ params, searchParams }: { params
   const renderedByWorker = rt ? (await dealershipForRenderToken(rt, dealershipId)) === dealershipId : false;
   if (!renderedByWorker) await requireDealershipAccess(dealershipId);
 
-  const data = await getClientDashboard(dealershipId);
+  const [data, branding] = await Promise.all([getClientDashboard(dealershipId), getDealership(dealershipId)]);
   if (!data) notFound();
 
   const tz = env().APP_TIMEZONE;
@@ -73,6 +75,8 @@ export default async function PrintReportPage({ params, searchParams }: { params
       </div>
 
       <header className="doc-cover">
+        {/* Dealership branding (logo / colour) when set; A3 styling otherwise. */}
+        <BrandHeader dealership={{ name: d.name, brandColor: branding?.brandColor, logoUrl: branding?.logoUrl }} className="doc-dealer-band" />
         <div className="doc-brand">
           <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="doc-logo" />
           <span className="doc-brand-name">A3 SEO Monitor</span>

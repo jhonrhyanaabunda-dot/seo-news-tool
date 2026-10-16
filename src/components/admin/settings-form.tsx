@@ -117,6 +117,39 @@ export function SettingsForm({ settings, timezone }: { settings: AppSettings; ti
             This week’s top stories from leading SEO publications, plus every dealership’s week. Sent every week, even when no dealership changed.
           </p>
         </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <Check name="monthlyReportEnabled" label="Monthly SEO report" description="Off by default." defaultChecked={settings.monthlyReportEnabled} />
+          </div>
+          <div>
+            <label htmlFor="monthlyReportDay" className="label">
+              Day of the month
+            </label>
+            <select id="monthlyReportDay" name="monthlyReportDay" defaultValue={settings.monthlyReportDay} className="input">
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="monthlyReportHour" className="label">
+              Monthly send time
+            </label>
+            <select id="monthlyReportHour" name="monthlyReportHour" defaultValue={settings.monthlyReportHour} className="input">
+              {hours.map((h) => (
+                <option key={h.value} value={h.value}>
+                  {h.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="field-hint -mt-2 sm:col-span-3">
+            One email per dealership to its contacts and the management recipients: score, what to do next and the change since last month, with the PDF attached when the report
+            worker is online (otherwise a sign-in link to download it). Sent once per dealership per month.
+          </p>
+        </div>
         <Check name="sendDigestWhenNoChanges" label="Send summaries even when nothing changed" defaultChecked={settings.sendDigestWhenNoChanges} />
         <Check name="instantAlertsEnabled" label="Send immediate alerts for critical problems" description="Website down or new critical SEO issues. Can also be turned off per dealership." defaultChecked={settings.instantAlertsEnabled} />
         <div>

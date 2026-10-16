@@ -17,7 +17,7 @@ import { INTEGRATION_FORM_FIELDS } from "@/lib/integrations/form";
 
 export type DealershipFormState = { errors?: DealershipFormErrors; values?: Record<string, string> } | undefined;
 
-const FORM_FIELDS = ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes", ...INTEGRATION_FORM_FIELDS];
+const FORM_FIELDS = ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes", "logoUrl", "brandColor", ...INTEGRATION_FORM_FIELDS];
 const submitted = (fd: FormData) => Object.fromEntries(FORM_FIELDS.map((k) => [k, String(fd.get(k) ?? "")]));
 
 const idSchema = z.coerce.number().int().positive();

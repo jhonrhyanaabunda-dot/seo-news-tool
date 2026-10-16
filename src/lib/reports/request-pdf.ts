@@ -44,13 +44,18 @@ export function describe(row: typeof reportRenders.$inferSelect): RenderStatus {
  * A double-clicked button must not start two Chromium renders, so a request
  * still pending for this dealership is returned as-is rather than queued again.
  */
-export async function requestReportPdf(dealershipId: number, requestedBy: number | null): Promise<RenderStatus> {
-  const [inFlight] = await db
-    .select()
-    .from(reportRenders)
-    .where(and(eq(reportRenders.dealershipId, dealershipId), eq(reportRenders.status, "pending"), gt(reportRenders.expiresAt, new Date())))
-    .orderBy(desc(reportRenders.id))
-    .limit(1);
+export async function requestReportPdf(dealershipId: number, requestedBy: number | null, opts: { reuseInFlight?: boolean } = {}): Promise<RenderStatus> {
+  // The monthly report asks for its own render (reuseInFlight: false) so that
+  // collecting its bytes never takes a file a person is waiting to download.
+  const [inFlight] =
+    opts.reuseInFlight === false
+      ? []
+      : await db
+          .select()
+          .from(reportRenders)
+          .where(and(eq(reportRenders.dealershipId, dealershipId), eq(reportRenders.status, "pending"), gt(reportRenders.expiresAt, new Date())))
+          .orderBy(desc(reportRenders.id))
+          .limit(1);
   if (inFlight) return describe(inFlight);
 
   const [dealer] = await db.select({ name: dealerships.name }).from(dealerships).where(eq(dealerships.id, dealershipId)).limit(1);
@@ -108,6 +113,26 @@ export async function takeRenderedPdf(renderId: number, dealershipId: number): P
   const filename = row.filename ?? "SEO-Report.pdf";
   await db.delete(reportRenders).where(eq(reportRenders.id, renderId));
   return { pdf, filename };
+}
+
+/**
+ * Read a finished render without consuming it, for the monthly email: the
+ * bytes must survive a send that fails part-way, so the retry can attach them
+ * again. The caller discards the row once every recipient is served;
+ * maintenance sweeps it otherwise.
+ */
+export async function peekRenderedPdf(renderId: number, dealershipId: number): Promise<{ pdf: Buffer; filename: string } | null> {
+  const [row] = await db
+    .select({ pdf: reportRenders.pdf, filename: reportRenders.filename })
+    .from(reportRenders)
+    .where(and(eq(reportRenders.id, renderId), eq(reportRenders.dealershipId, dealershipId), eq(reportRenders.status, "ready")))
+    .limit(1);
+  return row?.pdf ? { pdf: Buffer.from(row.pdf), filename: row.filename ?? "SEO-Report.pdf" } : null;
+}
+
+/** Drop a render the caller owns (delivered, or no longer wanted). */
+export async function discardRender(renderId: number, dealershipId: number): Promise<void> {
+  await db.delete(reportRenders).where(and(eq(reportRenders.id, renderId), eq(reportRenders.dealershipId, dealershipId)));
 }
 
 /** Housekeeping: anything expired, plus bytes a cancelled download left behind. */

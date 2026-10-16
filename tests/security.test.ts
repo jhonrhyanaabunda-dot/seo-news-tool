@@ -326,6 +326,8 @@ test("every admin and staff mutation writes an audit entry", () => {
     "cancelMfaEnrollmentAction",
     // A Places search that only returns candidates; saving the chosen place id is audited as dealership.update.
     "findPlaceAction",
+    // A user dismissing their own welcome guide; not an administrative change.
+    "dismissWelcomeAction",
   ]);
   const actions = new Set(Object.keys(AUDIT_ACTIONS));
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { emailReports, type EmailReport } from "@/lib/db/schema";
 import { logger, errorMessage } from "@/lib/logger";
-import { getEmailProvider } from "./provider";
+import { getEmailProvider, type EmailAttachment } from "./provider";
 
 /**
  * Send an email exactly once per dedupe key. A row is written before sending;
@@ -21,6 +21,8 @@ export async function sendTrackedEmail(input: {
   payload?: Record<string, unknown>;
   periodStart?: Date;
   periodEnd?: Date;
+  /** Sent with the message; never stored in email_reports (only the caller's payload is). */
+  attachments?: EmailAttachment[];
 }): Promise<"sent" | "skipped" | "failed"> {
   const inserted = await db
     .insert(emailReports)
@@ -44,7 +46,7 @@ export async function sendTrackedEmail(input: {
     id = existing.id;
   }
   try {
-    const { id: providerId } = await getEmailProvider().send({ to: input.to, subject: input.subject, html: input.html, text: input.text, idempotencyKey: input.dedupeKey.slice(0, 200) });
+    const { id: providerId } = await getEmailProvider().send({ to: input.to, subject: input.subject, html: input.html, text: input.text, idempotencyKey: input.dedupeKey.slice(0, 200), attachments: input.attachments });
     await db.update(emailReports).set({ status: "sent", sentAt: new Date(), providerMessageId: providerId, error: null }).where(eq(emailReports.id, id));
     return "sent";
   } catch (err) {

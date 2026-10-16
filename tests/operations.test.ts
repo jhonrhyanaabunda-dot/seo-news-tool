@@ -8,15 +8,25 @@ const fnBody = (src: string, signature: string) => {
   return from.slice(0, from.indexOf("\n}\n") + 2);
 };
 
-test("a digest that fails permanently releases its day once, so the next tick retries it", () => {
+test("a digest that fails permanently releases its day (bounded), so the next tick retries it", () => {
+  // Phase 1 J-04. The rule itself (bounded per period, budget resets each
+  // period, key mapping) is unit-tested in product-track.test.ts; this pins the wiring.
   const runner = read("src/lib/jobs/runner.ts");
-  assert.ok(/if \(final && job\.type === "digest"\) await releaseDigestPeriod\(job\)/.test(runner), "the final failure of a digest must release its period");
-  const release = fnBody(runner, "async function releaseDigestPeriod");
-  // Guarded by its own once-per-day claim: a mail server that stays down must not become a retry loop.
-  assert.ok(/claimPeriod\(`digest:\$\{kind\}:retry`, period\)/.test(release), "release is limited to once per day");
-  assert.ok(/releasePeriod\(`digest:\$\{kind\}`, period\)/.test(release), "releases the same key the scheduler claims");
+  assert.ok(/if \(final\) await releasePeriodAfterFailure\(job\)/.test(runner), "the final failure of a job must release its period");
+  // A job killed on its last attempt is recovered as a final failure; it must release too.
+  assert.ok(/const dead = await recoverStaleJobs[\s\S]*?await releasePeriodAfterFailure\(job\)/.test(runner), "stale final failures release too");
+  const release = fnBody(runner, "async function releasePeriodAfterFailure");
+  assert.ok(/periodClaimOf\(job\.type, job\.payload\)/.test(release), "maps the job to the exact claim the scheduler took");
+  assert.ok(/releaseFailedPeriod\(claim\.key, claim\.period\)/.test(release), "release is bounded per period");
+  const settings = read("src/lib/settings.ts");
+  const bounded = fnBody(settings, "export async function releaseFailedPeriod");
+  assert.ok(/\.for\("update"\)/.test(bounded), "the release budget is spent under a row lock");
+  assert.ok(/nextPeriodRelease\(row\?\.value, period, max\)/.test(bounded), "uses the tested pure rule");
+  assert.ok(/if \(allowed\) await releasePeriod\(key, period\)/.test(bounded), "releases the same key the scheduler claims");
   const scheduler = read("src/lib/jobs/scheduler.ts");
-  assert.ok(scheduler.includes('claimPeriod("digest:daily", local.date)') && scheduler.includes('claimPeriod("digest:weekly", local.date)'), "scheduler keys match");
+  assert.ok(scheduler.includes('claimAndEnqueue("digest:daily", local.date') && scheduler.includes('claimAndEnqueue("digest:weekly", local.date'), "scheduler keys match");
+  // An enqueue that throws after the claim hands the claim straight back.
+  assert.ok(/await releasePeriod\(key, period\)/.test(fnBody(scheduler, "async function claimAndEnqueue")));
 });
 
 test("releasePeriod only clears the period it was asked to release", () => {

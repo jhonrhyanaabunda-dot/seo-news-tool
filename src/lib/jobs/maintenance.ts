@@ -7,6 +7,7 @@ import { pruneSeoArticles } from "@/lib/news/seo-industry";
 import { pruneExpiredPasswordResets } from "@/lib/auth/password-reset";
 import { pruneReportRenders } from "@/lib/reports/request-pdf";
 import { AUDIT_RETENTION_DAYS } from "@/lib/audit-shared";
+import { backfillMonthlySnapshots, pruneMonthlySnapshots } from "@/lib/history/snapshots";
 
 /** Scans per dealership whose page/issue detail rows are kept. Older scans keep their summary, score and fingerprints. */
 export const DETAIL_SCANS_KEPT = 10;
@@ -23,6 +24,11 @@ export async function runMaintenance() {
   const days = s.retentionDays;
   const result: Record<string, number> = {};
   const count = (r: unknown) => (r as { count?: number }).count ?? 0;
+
+  // Long-term monthly history first: a scan's per-check summary must be taken
+  // while its issue rows still exist, i.e. before the pruning just below.
+  result.monthlySnapshotsBackfilled = await backfillMonthlySnapshots();
+  result.monthlySnapshotsDeleted = await pruneMonthlySnapshots();
 
   const prune = await db.execute<{ id: number }>(sql`
     select id from (

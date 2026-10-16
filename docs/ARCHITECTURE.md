@@ -131,6 +131,8 @@ Defined in `src/lib/db/schema.ts`; SQL migrations in `drizzle/`.
 | `system_logs` | Persisted warnings/errors | index `(level, created_at)` |
 | `performance_snapshots` | PageSpeed Insights lab + CrUX field metrics per dealership (homepage + one VDP), kept for the retention period, not scored | index `(dealership, captured_at)` |
 | `rate_limits` | Fixed-window counters shared across instances | PK key |
+| `seo_monthly_snapshots` | One compact summary per dealership per local month (score, counts, per-check summary); outlives detail pruning and scan retention | unique `(dealership, month)` |
+| `issue_states` | Staff workflow per issue fingerprint (open / in progress / fixed / ignored, verified / reopened); never read by scoring | unique `(dealership, fingerprint)` |
 
 **Scale:** all hot queries are index-backed and per-dealership. Page/issue detail rows are kept for the 10 most recent scans per dealership (maintenance prunes older ones), while score history, counts and fingerprints are kept for the retention period — so storage grows with the number of dealerships, not with time.
 

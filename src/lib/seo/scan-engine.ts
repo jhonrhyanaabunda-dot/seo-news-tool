@@ -48,6 +48,7 @@ import { isBrokenLink } from "./links";
 import { IMPORTANT_PAGES, PAGE_TYPE_CAPS, classifyPath, isImportantType, isSameSite, looksLikeHtmlPage, normalizeUrl, pagePriority, requestUrl, canonicalHost, type PageType } from "./url";
 import { logScanEvent } from "./scans";
 import { sameWebsite } from "./site-identity";
+import { afterScanCompleted } from "./post-scan";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -1378,6 +1379,8 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
       await logger.warn("scan", "Could not queue the Core Web Vitals measurement", { scanId: scan.id, err }, dealer.id);
     }
   }
+  // Monthly history snapshot + issue-workflow verification (failure-isolated; see post-scan.ts).
+  await afterScanCompleted(scan.id, dealer.id);
 
   try {
     await createScanAlerts({

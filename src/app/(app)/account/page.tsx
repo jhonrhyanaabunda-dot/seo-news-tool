@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireUser } from "@/lib/auth/guards";
 import { adminMfaRequired, getMfaStatus } from "@/lib/auth/mfa";
 import { groupSecret } from "@/lib/auth/totp";
@@ -106,6 +107,14 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             )}
           </Card>
         </section>
+
+        {/* Product track (onboarding): the welcome guide can be reopened at any time. */}
+        <Card title="Help">
+          <p className="text-sm text-slate-600">What the score means, where to find what to fix, reports and PDFs, and which emails you receive.</p>
+          <Link href="/help" className="btn mt-3">
+            Open the welcome guide
+          </Link>
+        </Card>
       </div>
     </>
   );

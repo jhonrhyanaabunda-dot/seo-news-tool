@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
-import { isClient } from "@/lib/auth/tenant";
+import { accessibleDealershipIds, isClient } from "@/lib/auth/tenant";
+import { hasDismissedWelcome } from "@/lib/queries/onboarding";
+import { WelcomeGuide } from "@/components/welcome-guide";
 import { logoutAction } from "@/lib/auth/actions";
 import { NavLinks } from "@/components/client/nav-links";
 
@@ -12,10 +14,12 @@ function initials(name: string): string {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" | "audit" }> = [
+  const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" | "audit" | "help" }> = [
     { href: "/", label: "Dashboard", icon: "dashboard" },
     { href: "/news", label: "News", icon: "news" },
   ];
+  // First visit of a dealership login: the welcome guide, until dismissed (always under Help).
+  const welcome = isClient(user) && !(await hasDismissedWelcome(user.id)) ? ((await accessibleDealershipIds(user)) ?? [])[0] ?? null : undefined;
   // The industry feed is A3's own trade reading, not a dealership deliverable.
   if (!isClient(user)) items.push({ href: "/seo-news", label: "SEO news", icon: "seoNews" });
   if (user.role === "admin") {
@@ -27,6 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       { href: "/admin/audit", label: "Audit log", icon: "audit" },
     );
   }
+  items.push({ href: "/help", label: "Help", icon: "help" });
   const roleLabel = user.role === "admin" ? "Administrator" : user.role === "client" ? "Dealership" : "Viewer";
   return (
     <div className="md:flex">
@@ -77,6 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </aside>
       <div className="min-w-0 flex-1">
         <main id="main" className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+          {welcome !== undefined && <WelcomeGuide dealershipId={welcome} dismissible />}
           {children}
         </main>
       </div>

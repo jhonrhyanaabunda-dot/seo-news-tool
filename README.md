@@ -37,6 +37,7 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architec
 16. [SEO reports (AI-assisted)](#16-seo-reports-ai-assisted)
 17. [Production deployment: Vercel + U.S. crawler worker](#17-production-deployment-vercel--us-crawler-worker)
 18. [Search Console, Google listing and competitors](#18-search-console-google-listing-and-competitors)
+19. [Monthly reports, history, issue workflow, branding & onboarding](#19-monthly-reports-history-issue-workflow-branding--onboarding)
 
 ---
 
@@ -201,6 +202,8 @@ Overlapping ticks are safe: scans, jobs, digests and emails are all de-duplicate
 * **Crawler offline alert** (`CRAWLER_MODE=worker`): when SEO scans have waited 2 hours with no crawler worker online, the management recipients (or, if none are set, all active admins) get one email naming the last crawler seen, and one more when a crawler is back. Queued scans are never lost (`src/lib/crawler/offline-alert.ts`).
 * **Recipients** = each dealership's notification emails + the management recipients from Settings (who receive everything).
 * **No duplicates**: each email has a unique key recorded before sending; retries and overlapping ticks skip already-sent emails. The Admin → System page shows the full email log.
+* **Monthly SEO report** (off by default; Settings → Email reports → day of month and hour) — one email per dealership with the score, the change since last month and what to do next, with the PDF attached when the report worker is online. See [section 18](#18-monthly-reports-history-issue-workflow-branding--onboarding).
+* **A failed digest is retried the same day**: the day is claimed before the digest job runs (so overlapping ticks send it once); if the job then fails permanently, the claim is handed back up to 2 times per day and the next tick queues a fresh job. Recipients already served are skipped by their per-recipient dedupe keys, so a re-run never sends anyone the digest twice (`src/lib/jobs/period-retry.ts`). Monthly reports follow the same rule per dealership and month.
 * **Provider**: `EMAIL_PROVIDER=resend` (HTTPS API, recommended on Vercel) or `smtp` (Google Workspace, SES, Postmark…). `console` prints emails to the log for development.
 
 ## 8. SEO scoring rules
@@ -363,7 +366,7 @@ See **`.env.example`** for the full, commented list. Required: `DATABASE_URL`, `
 * *A dealership shows "Scan blocked"* → see [section 10](#10-websites-that-block-the-scanner).
 * *Website down alerts* are only sent when the homepage cannot be loaded (DNS, connection, timeouts, 5xx or 404/410), and only when availability changes.
 * *Emails not arriving* → Settings → Send test email; check the System email log for the provider's error; verify the sending domain in Resend.
-* Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings).
+* Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings). One compact monthly snapshot per dealership (`seo_monthly_snapshots`) is kept for 36 months, independently of both.
 * Logs: structured JSON in Vercel's function logs. Warnings and errors are also stored in `system_logs`.
 
 ### Security: two-factor sign-in, audit log, CSP
@@ -465,3 +468,37 @@ The Business Profile API needs special approval from Google, so listing data com
 **Edit dealership → Competitors**: add up to three competitor websites (validated like dealership URLs: public hosts only). Each is checked right away and then weekly. With `GOOGLE_PLACES_API_KEY` set, the competitor's Google listing is found by name + city and matched on its website host. With `PAGESPEED_API_KEY`, its mobile PageSpeed score is included. The dealership's own column comes from its latest scan (homepage row) and listing snapshot. This is a homepage comparison, not a competitor SEO score.
 
 Tables: `dealership_integrations` (sync status and readable last error per dealership), `gsc_daily`, `gsc_top_items`, `place_snapshots`, `competitors`, `competitor_snapshots`; columns `dealerships.gsc_property` and `dealerships.google_place_id`. Code: `src/lib/integrations/`.
+## 19. Monthly reports, history, issue workflow, branding & onboarding
+
+### Long-term monthly history
+
+Page and issue detail rows are pruned after the 10 newest scans per dealership, so a month-old scan has counts but no findings. To keep a real history, every successfully completed scan also writes a **monthly snapshot** (`seo_monthly_snapshots`, one row per dealership per month in `APP_TIMEZONE`): score, category scores, counts, and a per-check summary (check, severity, priority, affected pages, up to 5 sample URLs). The latest *comparable* scan of the month wins — completed, scored, site reachable, a full audit, neither blocked nor partially blocked — so a month whose only checks were refused by the website has no snapshot rather than a misleading one. Daily maintenance backfills snapshots from retained scans *before* it prunes detail rows (which also fills history for data that existed before this feature). Snapshots are kept 36 months and have no foreign key to the scan, so they survive `retentionDays`.
+
+The dealership **Crawl history** tab shows a 12-month score chart, a per-month table, and a month-over-month comparison (new, resolved, improved and worsened checks). Code: `src/lib/history/`.
+
+### Monthly SEO report email (with PDF)
+
+Turn it on in **Admin → Settings → Email reports** (day 1–28 and hour, `APP_TIMEZONE`; off by default). From that day and hour onwards the scheduler claims each active dealership once for the month (10 per tick, to spread PDF renders) and queues a `monthly_report` job, which:
+
+1. generates a report exactly like **Reports → Generate report** (`runReportJob`: the same `ReportFindings` and grounded narrative; it appears in the Reports tab labelled *Monthly report*);
+2. if a crawler worker (which carries Chromium) is online, asks it to print the report PDF and waits for it — up to 90 s inline, then across ticks, never beyond the render's 10-minute key lifetime. Otherwise, or if rendering fails, the email is sent **without** the attachment and with a link to the signed-in report page, where the PDF can be downloaded. No render key ever appears in an email;
+3. emails the dealership's notification addresses and the management recipients (kind `monthly_report`, one tracked send per recipient, keyed by dealership + month + address). The email shows the score, the change since the last stored month (and says so honestly when there is no earlier month, when a month in between had no full check, or when the scan's detail has been pruned), what to do next (checks that A3 marked *ignored* are left out) and the dealership's branding.
+
+A permanently failed monthly job hands its month back (at most twice) so the next tick retries; recipients already served are skipped. Admins can test it from **Reports → Send monthly report now** ("Only me" or the dealership's recipients). A test send uses its own dedupe keys and never replaces the scheduled send.
+
+### Issue workflow
+
+On **SEO issues** (and in bulk per check on **Opportunities**), admins can set an issue's status — *Open*, *In progress*, *Marked fixed* or *Ignored* — with an assignee (A3 staff) and a staff-only note. Viewers see statuses, assignees and notes read-only; dealership logins see only the status. State is stored per dealership and issue fingerprint (`issue_states`), so it carries across scans. Filter chips on the issues view filter by status, including *Came back*.
+
+When a scan completes, every issue marked fixed is checked against it: if the scan still finds it, it is reopened and flagged **Came back** until someone re-decides; if a full scan evaluated the page (or, for site-wide checks, the site) and no longer finds it, it becomes **Fixed · verified**. A partial or blocked scan never verifies anything.
+
+**The score never reads workflow state.** It is calculated from what the scan finds, so marking an issue fixed or ignored changes nothing until a scan stops finding it. *Ignored* issues are de-emphasised and left out of "what to do next" lists (dashboard, opportunities, report, digest and monthly email) but are still counted in the score and the counts. This is stated in the UI next to the statuses. Code: `src/lib/issues/`.
+
+### Dealership branding
+
+**Edit dealership → Branding**: a logo URL (https on a public host, ≤ 500 characters; checked through the same SSRF guard as the website, because the PDF worker's browser loads it) and a brand colour (`#RRGGBB`). They appear on the report page and PDF cover, in the Reports tab, and in the header of the dealership's report and monthly emails. Header text is chosen automatically — white or black, whichever contrasts more (always ≥ 4.5:1). Without them, A3 styling is used. The logo is only ever rendered as an `<img>`; the app server never fetches it. Code: `src/lib/dealerships/branding.ts`.
+
+### Onboarding
+
+* **Dealership logins** see a welcome guide on their first visit: the score, opportunities, pages that could not be checked, findings and their status, reports/PDF and emails, each linking to where it lives. "Got it" dismisses it (`users.onboarded_at`); it stays available under **Help** in the navigation and from the account page.
+* **Admins** see a **Getting started** checklist on the dashboard, derived from real state: dealerships added, a scan completed, recipients configured, email provider configured, PageSpeed key present, AI key present (the last two optional). Each item links to where it is fixed, and the checklist disappears once the required items are done.
