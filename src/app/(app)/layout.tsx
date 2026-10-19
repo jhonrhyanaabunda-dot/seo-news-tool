@@ -12,7 +12,7 @@ function initials(name: string): string {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" }> = [
+  const items: Array<{ href: string; label: string; icon: "dashboard" | "news" | "seoNews" | "dealerships" | "settings" | "system" | "users" | "audit" }> = [
     { href: "/", label: "Dashboard", icon: "dashboard" },
     { href: "/news", label: "News", icon: "news" },
   ];
@@ -24,6 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       { href: "/admin/settings", label: "Settings", icon: "settings" },
       { href: "/admin/users", label: "Users", icon: "users" },
       { href: "/admin/system", label: "System", icon: "system" },
+      { href: "/admin/audit", label: "Audit log", icon: "audit" },
     );
   }
   const roleLabel = user.role === "admin" ? "Administrator" : user.role === "client" ? "Dealership" : "Viewer";

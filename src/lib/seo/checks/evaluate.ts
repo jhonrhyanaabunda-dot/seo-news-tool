@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { PageDetails } from "@/lib/db/schema";
 import { friendlyFetchError } from "../messages";
+import { hreflangProblems } from "../hreflang";
+import { classifyLinkRedirect } from "../links";
 import { canonicalHost, normalizeUrl, urlsEquivalent } from "../url";
-import { CHECKS, CHECKS_BY_KEY, DEALER_SCHEMA_TYPES, THIN_CONTENT_PAGE_TYPES, THRESHOLDS, type Category, type Severity } from "./config";
+import { CHECKS, CHECKS_BY_KEY, DEALER_SCHEMA_TYPES, SOLD_AVAILABILITY, THIN_CONTENT_PAGE_TYPES, THRESHOLDS, VEHICLE_SCHEMA_TYPES, type Category, type Severity } from "./config";
 
 /**
  * Deterministic evaluation of a completed crawl.
@@ -52,6 +54,9 @@ export interface EvalLink {
   foundOn: string[];
   occurrences: number;
   anchorText: string | null;
+  /** Where the target ends up when it redirects (internal_link_redirects); absent/null = no redirect known. */
+  finalUrl?: string | null;
+  redirectHops?: number | null;
 }
 
 export interface EvalSite {
@@ -137,6 +142,17 @@ export function isOkHtmlPage(p: EvalPage): boolean {
   return p.status === "fetched" && p.httpStatus !== null && p.httpStatus >= 200 && p.httpStatus < 300;
 }
 
+/**
+ * A vehicle detail page we are sure about: classified as one by its URL and
+ * backed by evidence in the page (a VIN or vehicle structured data). URL
+ * patterns alone also match some listing pages (/inventory/new/toyota), and
+ * holding a listing page to VDP rules would be a false finding.
+ */
+export function isConfirmedVdp(p: EvalPage): boolean {
+  const v = p.details?.vehicle;
+  return p.pageType === "vehicle_detail" && Boolean(v) && (Boolean(v!.vin) || v!.hasVehicleSchema);
+}
+
 function stripQuery(url: string): string {
   try {
     const u = new URL(url);
@@ -146,6 +162,57 @@ function stripQuery(url: string): string {
   } catch {
     return url;
   }
+}
+
+const fmtPhone = (d: string) => (d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : d);
+const napName = (n: string | null) => (n ?? "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\b(inc|llc|ltd|co)\b/g, "").replace(/\s+/g, " ").trim();
+
+/**
+ * Conflicting phone numbers or addresses for the same dealership (same name)
+ * across pages. Entities are compared by name so a group site with one page
+ * per rooftop is not flagged; unnamed entities cannot be matched and are skipped.
+ * Pages must be passed in a stable order (the caller sorts by URL).
+ */
+export function napConflicts(pages: Array<{ url: string; details: PageDetails | null }>): Array<{ message: string; details: Record<string, unknown>; subject: string }> {
+  const groups = new Map<string, { name: string; phones: Map<string, string[]>; addresses: Map<string, { display: string; urls: string[] }> }>();
+  for (const p of pages) {
+    for (const e of p.details?.nap?.entities ?? []) {
+      const key = napName(e.name);
+      if (!key) continue;
+      const g = groups.get(key) ?? { name: e.name!, phones: new Map(), addresses: new Map() };
+      if (e.phone) {
+        const urls = g.phones.get(e.phone) ?? [];
+        if (!urls.includes(p.url)) urls.push(p.url);
+        g.phones.set(e.phone, urls);
+      }
+      if (e.addressKey) {
+        const a = g.addresses.get(e.addressKey) ?? { display: e.address ?? e.addressKey, urls: [] };
+        if (!a.urls.includes(p.url)) a.urls.push(p.url);
+        g.addresses.set(e.addressKey, a);
+      }
+      groups.set(key, g);
+    }
+  }
+  const out: Array<{ message: string; details: Record<string, unknown>; subject: string }> = [];
+  for (const [key, g] of [...groups].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    if (g.phones.size > 1) {
+      const list = [...g.phones].sort(([a], [b]) => (a < b ? -1 : 1));
+      out.push({
+        message: `"${g.name}" has ${list.length} different phone numbers in its structured data: ${list.map(([ph, urls]) => `${fmtPhone(ph)} on ${urls.slice(0, 2).join(", ")}${urls.length > 2 ? ` and ${urls.length - 2} more` : ""}`).join("; ")}.`,
+        details: { name: g.name, field: "phone", values: list.map(([ph, urls]) => ({ value: fmtPhone(ph), urls: urls.slice(0, 5) })) },
+        subject: `${key}|phone`,
+      });
+    }
+    if (g.addresses.size > 1) {
+      const list = [...g.addresses.values()].sort((a, b) => (a.display < b.display ? -1 : 1));
+      out.push({
+        message: `"${g.name}" has ${list.length} different addresses in its structured data: ${list.map((a) => `${a.display} on ${a.urls.slice(0, 2).join(", ")}${a.urls.length > 2 ? ` and ${a.urls.length - 2} more` : ""}`).join("; ")}.`,
+        details: { name: g.name, field: "address", values: list.map((a) => ({ value: a.display, urls: a.urls.slice(0, 5) })) },
+        subject: `${key}|address`,
+      });
+    }
+  }
+  return out;
 }
 
 export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSite): EvalResult {
@@ -209,6 +276,12 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
   /* ── Page-level checks ── */
   const ok = pages.filter(isOkHtmlPage);
   const home = ok.find((p) => p.pageType === "home") ?? null;
+  // Pages of this scan by URL, so hreflang return links are only checked against pages actually seen.
+  const hreflangIndex = new Map<string, { url: string; finalUrl: string | null; canonical: string | null; hreflang: Array<{ lang: string; href: string }> }>();
+  for (const p of ok) {
+    const entry = { url: p.url, finalUrl: p.finalUrl, canonical: p.canonical, hreflang: p.details?.hreflang ?? [] };
+    for (const u of [p.url, p.finalUrl]) if (u && !hreflangIndex.has(urlKey(u))) hreflangIndex.set(urlKey(u), entry);
+  }
 
   for (const p of pages) {
     if (p.status === "pending" || p.status === "skipped") continue;
@@ -254,6 +327,14 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
     applicable("blocking_scripts");
     if ((p.blockingScriptsCount ?? 0) > THRESHOLDS.blockingScriptsMax)
       flag("blocking_scripts", p, `${p.blockingScriptsCount} render-blocking scripts are loaded in the page head.`, { count: p.blockingScriptsCount });
+    // The homepage is requested at the address an admin typed in (often http:// or without www), so its
+    // hops say more about our configuration than about the site; every other URL came from the site itself.
+    if (d.redirectChain && p.pageType !== "home") {
+      applicable("redirect_chain");
+      const hops = d.redirectChain.length;
+      if (hops >= THRESHOLDS.redirectChainHops)
+        flag("redirect_chain", p, `This page is reached through ${hops} redirects: ${[...d.redirectChain, url].join(" → ")}.`, { hops, chain: d.redirectChain });
+    }
 
     // Metadata
     applicable("title_missing");
@@ -305,6 +386,7 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
     // Links
     applicable("broken_internal_link");
     applicable("broken_external_link");
+    applicable("internal_link_redirects");
     applicable("low_internal_links");
     if ((p.internalLinksCount ?? 0) < THRESHOLDS.lowInternalLinks) flag("low_internal_links", p, `The page links to only ${p.internalLinksCount ?? 0} internal page(s).`);
 
@@ -318,9 +400,13 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
       if (noDims / (p.imagesCount ?? 1) > 0.5) flag("image_dimensions_missing", p, `${noDims} of ${p.imagesCount} images have no width/height attributes.`, { count: noDims });
     }
 
-    // Structured data
-    applicable("schema_missing");
-    if ((p.schemaTypes ?? []).length === 0) flag("schema_missing", p, "No structured data (JSON-LD or microdata) was found on this page.");
+    // Structured data. A confirmed VDP is held to the stricter vdp_schema_missing instead, so a vehicle page
+    // without any schema is reported once, not twice.
+    const vdp = isConfirmedVdp(p);
+    if (!vdp) {
+      applicable("schema_missing");
+      if ((p.schemaTypes ?? []).length === 0) flag("schema_missing", p, "No structured data (JSON-LD or microdata) was found on this page.");
+    }
     applicable("schema_invalid");
     if ((p.schemaErrors ?? 0) > 0) flag("schema_invalid", p, `${p.schemaErrors} JSON-LD block(s) could not be parsed.`, { errors: p.schemaErrors });
 
@@ -329,6 +415,39 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
     applicable(isKey ? "noindex_important" : "noindex_page");
     if (hasNoindex(p)) {
       flag(isKey ? "noindex_important" : "noindex_page", p, `This page is marked "noindex" (${[p.robotsMeta, p.xRobotsTag].filter(Boolean).join("; ")}) and will not appear in search results.`);
+    }
+
+    // Vehicle detail pages
+    if (vdp) {
+      const v = d.vehicle!;
+      const soldSignal = (v.availability !== null && SOLD_AVAILABILITY.includes(v.availability)) || v.soldText;
+      applicable("vdp_schema_missing");
+      if (!v.hasVehicleSchema && !(p.schemaTypes ?? []).some((t) => VEHICLE_SCHEMA_TYPES.includes(t))) {
+        const types = p.schemaTypes ?? [];
+        flag("vdp_schema_missing", p, `This vehicle page has no Vehicle, Car or Product structured data${types.length ? ` (found: ${types.slice(0, 5).join(", ")})` : ""}.`, { found: types, vin: v.vin });
+      }
+      // A sold vehicle has no price to show; vdp_sold_indexed covers it.
+      if (!soldSignal) {
+        applicable("vdp_price_missing");
+        // "Call for price" is an explicit, often manufacturer-mandated pricing policy, and a price only in the
+        // page's JavaScript data is still shown to visitors: both pass.
+        if (v.schemaPrice === null && !v.visiblePrice && !v.scriptPrice && !v.priceStatement)
+          flag("vdp_price_missing", p, "No price was found on this vehicle page: none in the visible content, none in its structured data, and no \"call for price\" statement.", { vin: v.vin });
+      }
+      applicable("vdp_sold_indexed");
+      // Only a page that can actually be indexed: 200, no noindex, and a canonical that does not hand indexing to another URL.
+      const canonicalElsewhere = p.canonical !== null && !urlsEquivalent(p.canonical, url) && !urlsEquivalent(p.canonical, stripQuery(url));
+      if (soldSignal && p.httpStatus === 200 && !hasNoindex(p) && !canonicalElsewhere) {
+        const why = v.availability && SOLD_AVAILABILITY.includes(v.availability) ? `its structured data marks it ${v.availability}` : "the page says the vehicle has been sold or is no longer available";
+        flag("vdp_sold_indexed", p, `This vehicle page is still indexable (HTTP 200, no noindex) although ${why}.`, { availability: v.availability, soldText: v.soldText, vin: v.vin });
+      }
+    }
+
+    // hreflang: only pages that declare alternates (most US dealer sites have none, which is fine).
+    if (d.hreflang?.length) {
+      applicable("hreflang_invalid");
+      const problems = hreflangProblems({ url: p.url, finalUrl: p.finalUrl, canonical: p.canonical, hreflang: d.hreflang }, (u) => hreflangIndex.get(urlKey(u)), urlsEquivalent);
+      if (problems.length) flag("hreflang_invalid", p, `hreflang problems: ${problems.join("; ")}.`, { problems, alternates: d.hreflang.slice(0, 10) });
     }
   }
 
@@ -375,6 +494,41 @@ export function evaluateScan(pages: EvalPage[], links: EvalLink[], site: EvalSit
       linkSubject(l.url),
       affectedKeys,
     );
+  }
+
+  // Internal links to redirecting URLs — one issue per target, like broken links. Only redirects that end on a
+  // working page of this site and change something a link should be updated for (an old path, or http:// on an
+  // https site) count; slash/www normalisation, sign-in walls and refused/unverified checks never do.
+  const redirecting = links
+    .filter((l) => l.isInternal && !l.isBroken && l.finalUrl && (l.errorCode === null || l.errorCode === "REUSED") && l.httpStatus !== null && l.httpStatus >= 200 && l.httpStatus < 300)
+    .map((l) => ({ l, kind: classifyLinkRedirect(l.url, l.finalUrl!) }))
+    .filter(({ kind }) => kind === "moved" || kind === "https")
+    .sort((a, b) => b.l.occurrences - a.l.occurrences || (a.l.url < b.l.url ? -1 : 1));
+  for (const { l, kind } of redirecting) {
+    const foundOn = [...l.foundOn].sort();
+    const source = foundOn[0];
+    if (!source) continue;
+    const page = ok.find((p) => p.url === source || p.finalUrl === source);
+    const st = state.get("internal_link_redirects")!;
+    const approxPages = Math.max(foundOn.length, Math.min(l.occurrences, st.applicable));
+    const affectedKeys = foundOn.length >= approxPages ? foundOn : [...foundOn, ...Array.from({ length: approxPages - foundOn.length }, (_, i) => `${l.url}#occ${i}`)];
+    const hops = l.redirectHops ?? 1;
+    flag(
+      "internal_link_redirects",
+      { url: source, id: page?.id ?? null },
+      `${kind === "https" ? "Insecure link" : "Link"} to ${l.url} redirects to ${l.finalUrl}${hops > 1 ? ` through ${hops} redirects` : ""}.${l.occurrences > 1 ? ` Found on ${l.occurrences} pages.` : ""}`,
+      { target: l.url, finalUrl: l.finalUrl, hops, kind, foundOn: foundOn.slice(0, 5), occurrences: l.occurrences, anchorText: l.anchorText },
+      linkSubject(l.url),
+      affectedKeys,
+    );
+  }
+
+  // NAP consistency across pages, from the dealership entities in structured data. Visible numbers are not
+  // compared: sales, service and parts lines and call-tracking numbers legitimately differ between pages.
+  const napPages = ok.filter((p) => (p.details?.nap?.entities.length ?? 0) > 0).sort((a, b) => (a.url < b.url ? -1 : 1));
+  if (napPages.length >= 2) {
+    applicable("nap_inconsistent");
+    for (const c of napConflicts(napPages)) flag("nap_inconsistent", siteRef, c.message, c.details, c.subject);
   }
 
   /* ── Site-level checks needing the homepage ── */

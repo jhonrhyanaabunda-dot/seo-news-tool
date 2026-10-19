@@ -3,6 +3,8 @@ import { ArrowRight, CheckCircle2, CircleAlert, FileText, Info, TriangleAlert } 
 import type { ClientDashboard } from "@/lib/queries/client-dashboard";
 import { scopeLabel, type Opportunity } from "@/lib/seo/opportunity";
 import { ScoreHistoryChart } from "@/components/charts";
+import { SpeedCard } from "@/components/speed-card";
+import type { SpeedData } from "@/lib/queries/performance";
 import { DetailsPrunedNotice } from "@/components/detail-retention";
 import { Badge, Card, EmptyState, Notice, ScoreDelta, cn } from "@/components/ui";
 import { fmtDateTime, fmtRelative } from "@/components/format";
@@ -72,7 +74,7 @@ function shortTitle(title: string, dealershipName: string): string {
   return title.startsWith(prefix) ? title.slice(prefix.length) : title;
 }
 
-export function ClientDashboardView({ data, tz, canScan, scanAction, showHeader = true }: { data: ClientDashboard; tz: string; canScan: boolean; scanAction?: React.ReactNode; /** False when the surrounding page already names the dealership. */ showHeader?: boolean }) {
+export function ClientDashboardView({ data, tz, canScan, scanAction, showHeader = true, speed }: { data: ClientDashboard; tz: string; canScan: boolean; scanAction?: React.ReactNode; /** False when the surrounding page already names the dealership. */ showHeader?: boolean; /** Stored Core Web Vitals (not scored); the Speed card is omitted when absent. */ speed?: SpeedData }) {
   const { dealership: d, scan, activeScan, counts, pages, topIssues, trend, activity } = data;
   const b = band(scan?.score ?? null);
   const base = `/dealerships/${d.id}`;
@@ -205,6 +207,9 @@ export function ClientDashboardView({ data, tz, canScan, scanAction, showHeader 
               )}
             </Card>
           </div>
+
+          {/* ── Speed (context only, not scored) ─────────────────────── */}
+          {speed && <SpeedCard speed={speed} tz={tz} />}
         </>
       )}
     </div>

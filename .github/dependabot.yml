@@ -1,0 +1,32 @@
+# Dependency monitoring. Security advisories open PRs regardless of this
+# schedule; these are the routine version bumps. Minor and patch updates are
+# grouped into one weekly PR so review stays manageable; majors arrive one per
+# package because they can carry breaking changes (read AGENTS.md before
+# merging a Next.js major). CI (typecheck, lint, tests, build, npm audit) runs
+# on every Dependabot PR.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { assertDealershipAccess } from "@/lib/auth/tenant";
 import { checkRateLimit } from "@/lib/security/rate-limit";
+import { recordAudit } from "@/lib/audit";
 import { getRenderStatus, requestReportPdf, type RenderStatus } from "@/lib/reports/request-pdf";
 
 const idSchema = z.coerce.number().int().positive();
@@ -25,7 +26,9 @@ export async function requestReportPdfAction(_prev: PdfState, formData: FormData
   const limit = await checkRateLimit({ key: `report-pdf:${user.id}`, limit: 10, windowSeconds: 3600 });
   if (!limit.allowed) return { error: "You have requested several reports in the last hour. Please wait a little before trying again." };
 
-  return { status: await requestReportPdf(id.data, user.id) };
+  const status = await requestReportPdf(id.data, user.id);
+  await recordAudit({ actor: user, action: "report.pdf", target: { type: "dealership", id: id.data }, summary: "Requested a report PDF" });
+  return { status };
 }
 
 /** Poll one render the caller already started. */

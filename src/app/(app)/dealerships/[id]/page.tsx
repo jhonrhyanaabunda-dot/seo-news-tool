@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessDealership, isClient, requireDealershipAccess } from "@/lib/auth/tenant";
 import { getClientDashboard } from "@/lib/queries/client-dashboard";
 import { ClientDashboardView } from "@/components/client-dashboard";
+import { SpeedCard } from "@/components/speed-card";
+import { getSpeedData, type SpeedData } from "@/lib/queries/performance";
 import { getOpportunities } from "@/lib/queries/client-opportunities";
 import { OpportunitiesView } from "@/components/opportunities-view";
 import { env } from "@/lib/env";
@@ -247,6 +249,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
             data={(await getClientDashboard(id))!}
             tz={tz}
             showHeader={false}
+            speed={await getSpeedData(id)}
             canScan={dealer.seoEnabled && !active}
             scanAction={
               <form action={scanNowAction}>
@@ -258,7 +261,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
             }
           />
         ) : (
-          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} />
+          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} speed={await getSpeedData(id)} />
         ))}
       {tab === "opportunities" &&
         (latest ? (
@@ -374,8 +377,10 @@ async function Overview({
   issueCounts,
   newsCounts,
   href,
+  speed,
 }: {
   latest: Awaited<ReturnType<typeof getLatestScans>>["latest"];
+  speed: SpeedData;
   status: string | null;
   tz: string;
   issueCounts: Awaited<ReturnType<typeof getIssueCounts>> | null;
@@ -580,7 +585,8 @@ async function Overview({
         )}
       </Card>
 
-      <Card title="Performance (Google Lighthouse)" description="Lab data from PageSpeed Insights, mobile. Shown for context; not part of the score because it varies between runs.">
+      {/* Weekly Core Web Vitals snapshots replace the per-scan Lighthouse reading once one exists. */}
+      {speed.home || speed.vdp ? <SpeedCard speed={speed} tz={tz} className="lg:col-span-3" /> : <Card title="Performance (Google Lighthouse)" description="Lab data from PageSpeed Insights, mobile. Shown for context; not part of the score because it varies between runs.">
         {sc?.pagespeed && sc.pagespeed.performance !== null ? (
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <Metric label="Performance" value={`${sc.pagespeed.performance}/100`} />
@@ -591,7 +597,7 @@ async function Overview({
         ) : (
           <p className="text-sm text-slate-500">{sc?.pagespeed?.error ? `Not available: ${sc.pagespeed.error}.` : "Not configured. Add a PAGESPEED_API_KEY to enable Lighthouse metrics."} Server response times are always measured by the crawler.</p>
         )}
-      </Card>
+      </Card>}
 
       {(!blocked || remote) && <Card title={`Passed checks (${passed.length})`} className="lg:col-span-3">
         <ul className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">

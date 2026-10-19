@@ -2,7 +2,20 @@
  * Dependency-free SVG charts (server-rendered, no client JS).
  */
 
-export function ScoreHistoryChart({ points, height = 180 }: { points: Array<{ label: string; score: number | null; down?: boolean }>; height?: number }) {
+/** `good` shades the band counted as good (85+ for the SEO score; 90+ for a Lighthouse performance score). `name` labels the series for screen readers. */
+export function ScoreHistoryChart({
+  points,
+  height = 180,
+  good = 85,
+  name = "Score history",
+  unit = "scans",
+}: {
+  points: Array<{ label: string; score: number | null; down?: boolean }>;
+  height?: number;
+  good?: number;
+  name?: string;
+  unit?: string;
+}) {
   const valid = points.filter((p) => p.score !== null);
   if (valid.length === 0) return <p className="text-sm text-slate-500">No scored scans yet.</p>;
   const width = 640;
@@ -19,7 +32,7 @@ export function ScoreHistoryChart({ points, height = 180 }: { points: Array<{ la
   // Closed shape under the line, for a faint fill that reads as volume without competing with the line.
   const scored = points.map((p, i) => ({ p, i })).filter(({ p }) => p.score !== null);
   const area = scored.length > 1 ? `M${x(scored[0].i).toFixed(1)},${y(0).toFixed(1)} ` + scored.map(({ p, i }) => `L${x(i).toFixed(1)},${y(p.score!).toFixed(1)}`).join(" ") + ` L${x(scored[scored.length - 1].i).toFixed(1)},${y(0).toFixed(1)} Z` : "";
-  const summary = `Score history: ${valid.length} scans, latest ${valid[valid.length - 1].score}, lowest ${Math.min(...valid.map((v) => v.score!))}, highest ${Math.max(...valid.map((v) => v.score!))}.`;
+  const summary = `${name}: ${valid.length} ${unit}, latest ${valid[valid.length - 1].score}, lowest ${Math.min(...valid.map((v) => v.score!))}, highest ${Math.max(...valid.map((v) => v.score!))}.`;
   return (
     <figure>
       <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label={summary}>
@@ -31,9 +44,9 @@ export function ScoreHistoryChart({ points, height = 180 }: { points: Array<{ la
             </text>
           </g>
         ))}
-        <rect x={pad.l} y={y(100)} width={w} height={y(85) - y(100)} fill="#ecfdf5" opacity="0.7" />
+        <rect x={pad.l} y={y(100)} width={w} height={y(good) - y(100)} fill="#ecfdf5" opacity="0.7" />
         <text x={width - pad.r - 4} y={y(100) + 13} textAnchor="end" fontSize="10.5" fill="#059669" opacity="0.8">
-          Good (85+)
+          Good ({good}+)
         </text>
         {area && <path d={area} fill="#1f4fd1" opacity="0.06" />}
         <path d={path} fill="none" stroke="#1f4fd1" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
