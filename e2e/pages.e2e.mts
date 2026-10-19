@@ -75,6 +75,13 @@ console.log("1. Staff (administrator): every screen loads, shows its data, and b
     ck(`${name}: no console errors or policy violations`, problems.length === 0, problems.join(" | "));
   }
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  ck("dashboard shows the portfolio trend", await page.getByText("Portfolio score").first().isVisible());
+  // Seed: 78 a month ago, 84 now.
+  const movers = await page.locator("section", { hasText: "Biggest changes" }).innerText();
+  ck("biggest changes shows Example Motors +6 (78 → 84)", movers.includes("Example Motors") && movers.includes("+6") && movers.includes("78 → 84"), movers.slice(0, 200));
+  await page.goto(`${BASE}/?trend=30`, { waitUntil: "networkidle" });
+  ck("the 30-day switch keeps the dashboard working", await page.getByText("over 30 days").first().isVisible().catch(() => false) || await page.getByText("Not enough history yet").first().isVisible().catch(() => false));
+  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await page.screenshot({ path: path.join(SHOTS, "dashboard.png"), fullPage: true });
   await page.goto(`${BASE}/dealerships/1`, { waitUntil: "networkidle" });
   await page.screenshot({ path: path.join(SHOTS, "dealer-overview.png"), fullPage: true });

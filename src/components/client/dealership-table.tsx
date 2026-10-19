@@ -168,7 +168,7 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
         <button
           type="button"
           onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((s.dir * -1) as 1 | -1) : key === "name" || key === "status" ? 1 : -1 }))}
-          className={clsx("inline-flex items-center gap-1 uppercase", active && "text-slate-900")}
+          className={clsx("inline-flex items-center gap-1 hover:text-slate-800", active && "text-slate-900")}
         >
           {label}
           {active && (sort.dir === 1 ? <ArrowUp aria-hidden className="h-3 w-3" /> : <ArrowDown aria-hidden className="h-3 w-3" />)}

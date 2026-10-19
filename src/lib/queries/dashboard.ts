@@ -174,3 +174,56 @@ export async function getDashboardSummary(rows: DealerRow[], allowed: number[] |
     accessRestricted: active.filter((r) => r.status === "blocked" || r.status === "limited" || r.status === "partially_blocked").length,
   };
 }
+
+/**
+ * The portfolio score per day: for each day, every dealership's latest score as of that day
+ * (carried forward), averaged. Averaging only the scans that ran on a given day made the line
+ * jump whenever a different set of dealerships was scanned. Blocked checks are left out.
+ */
+export async function getPortfolioTrend(allowed: number[] | null, days: number, timeZone: string): Promise<Array<{ day: string; score: number; dealerships: number }>> {
+  const scope = dealershipSqlScope(allowed, "d.id");
+  const rows = (await db.execute(sql`
+    with day as (
+      select generate_series((now() at time zone ${timeZone})::date - (${days}::int - 1), (now() at time zone ${timeZone})::date, interval '1 day')::date as d
+    ), dealer as (
+      select d.id from dealerships d where d.is_active and ${scope}
+    )
+    select to_char(day.d, 'YYYY-MM-DD') as day, round(avg(x.score))::int as score, count(x.score)::int as dealerships
+    from day cross join dealer
+    left join lateral (
+      select s.score from seo_scans s
+      where s.dealership_id = dealer.id and s.status = 'completed' and s.score is not null and s.outcome is distinct from 'blocked'
+        and (s.completed_at at time zone ${timeZone})::date <= day.d
+      order by s.completed_at desc limit 1
+    ) x on true
+    group by day.d having count(x.score) > 0
+    order by day.d
+  `)) as unknown as Array<{ day: string; score: number; dealerships: number }>;
+  return rows.map((r) => ({ day: r.day, score: Number(r.score), dealerships: Number(r.dealerships) }));
+}
+
+/**
+ * Each dealership's latest score against its average over the week ending `days` ago,
+ * biggest change first. A week's average rather than one scan, so a single unusual
+ * reading does not pose as a trend.
+ */
+export async function getScoreMovers(allowed: number[] | null, days: number): Promise<Array<{ id: number; name: string; now: number; before: number; delta: number }>> {
+  const scope = dealershipSqlScope(allowed, "d.id");
+  const rows = (await db.execute(sql`
+    select d.id, d.name, cur.score as now, prev.score as before
+    from dealerships d
+    join lateral (
+      select score from seo_scans s where s.dealership_id = d.id and s.status = 'completed' and s.score is not null and s.outcome is distinct from 'blocked'
+      order by s.completed_at desc limit 1
+    ) cur on true
+    join lateral (
+      select round(avg(score))::int as score from seo_scans s
+      where s.dealership_id = d.id and s.status = 'completed' and s.score is not null and s.outcome is distinct from 'blocked'
+        and s.completed_at <= now() - make_interval(days => ${days}::int) and s.completed_at > now() - make_interval(days => ${days}::int + 7)
+    ) prev on prev.score is not null
+    where d.is_active and ${scope}
+  `)) as unknown as Array<{ id: number; name: string; now: number; before: number }>;
+  return rows
+    .map((r) => ({ id: Number(r.id), name: r.name, now: Number(r.now), before: Number(r.before), delta: Number(r.now) - Number(r.before) }))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name));
+}

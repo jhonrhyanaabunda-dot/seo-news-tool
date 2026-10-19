@@ -9,14 +9,15 @@ import { ClientDashboardView } from "@/components/client-dashboard";
 import { scanNowAction } from "@/app/actions/dealerships";
 import { SubmitButton } from "@/components/client/submit-button";
 import { env } from "@/lib/env";
-import { getDashboardSummary, getDealerRows } from "@/lib/queries/dashboard";
+import { getDashboardSummary, getDealerRows, getPortfolioTrend, getScoreMovers } from "@/lib/queries/dashboard";
+import { PortfolioTrends, TREND_WINDOWS, type TrendWindow } from "@/components/portfolio-trends";
 import { getSettings } from "@/lib/settings";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { EmptyState, MetaStat, Notice, PageHeader, StatCard } from "@/components/ui";
 import { DealershipTable, type DealerTableRow } from "@/components/client/dealership-table";
-import { fmtDateTime, fmtRelative } from "@/components/format";
+import { fmtDate, fmtDateTime, fmtRelative } from "@/components/format";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -27,9 +28,10 @@ function scheduleLabel(hours: number): string {
   return days === 1 ? "Every day" : `Every ${days} days`;
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ error?: string; q?: string; status?: string; sort?: string; dir?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ error?: string; q?: string; status?: string; sort?: string; dir?: string; trend?: string }> }) {
   const user = await requireUser();
-  const { error, q, status, sort, dir } = await searchParams;
+  const { error, q, status, sort, dir, trend } = await searchParams;
+  const trendWindow: TrendWindow = (TREND_WINDOWS as readonly number[]).includes(Number(trend)) ? (Number(trend) as TrendWindow) : 90;
   const tz = env().APP_TIMEZONE;
   const allowed = await accessibleDealershipIds(user);
 
@@ -43,6 +45,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     getSettings(),
     db.select({ totpEnabledAt: users.totpEnabledAt }).from(users).where(eq(users.id, user.id)).limit(1),
   ]);
+  const [portfolioTrend, movers] = await Promise.all([getPortfolioTrend(allowed, trendWindow, tz), getScoreMovers(allowed, 30)]);
   const summary = await getDashboardSummary(rows, allowed);
   const now = summary.generatedAt;
 
@@ -114,6 +117,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <MetaStat label="Scan failures" value={summary.scanFailures} tone={summary.scanFailures ? "warning" : "success"} hint="Last 7 days" href={user.role === "admin" ? "/admin/system" : undefined} />
         <MetaStat label="Access restricted" value={summary.accessRestricted} tone={summary.accessRestricted ? "warning" : "success"} hint="Not SEO issues" />
       </div>
+
+      {rows.length > 0 && (
+        <PortfolioTrends
+          trend={portfolioTrend}
+          movers={movers}
+          window={trendWindow}
+          hrefFor={(w) => {
+            const p = new URLSearchParams(Object.entries({ q, status, sort, dir }).filter((e): e is [string, string] => !!e[1]));
+            if (w !== 90) p.set("trend", String(w));
+            const qs = p.toString();
+            return qs ? `/?${qs}` : "/";
+          }}
+          formatDay={(day) => fmtDate(`${day}T12:00:00Z`, tz)}
+        />
+      )}
 
       {rows.length === 0 ? (
         <EmptyState
