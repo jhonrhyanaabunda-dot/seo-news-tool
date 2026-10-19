@@ -151,10 +151,11 @@ test("a restore refuses the production database and non-empty targets", () => {
   assert.ok(/SKIP = new Set\(\["sessions", "rate_limits", "site_cache"\]\)/.test(backup), "session tokens never sit in a backup");
 });
 
-test("responses carry HSTS and a report-only CSP; health reports crawler freshness without configuration", () => {
+test("responses carry HSTS and an enforced CSP; health reports crawler freshness without configuration", () => {
   const proxy = read("src/proxy.ts");
   assert.ok(proxy.includes('"Strict-Transport-Security", "max-age=63072000; includeSubDomains"'));
-  assert.ok(proxy.includes('"Content-Security-Policy-Report-Only", CSP') && proxy.includes("\"frame-ancestors 'none'\""));
+  assert.ok(proxy.includes('"Content-Security-Policy", CSP') && proxy.includes("\"frame-ancestors 'none'\"") && proxy.includes("\"report-uri /api/csp-report\""), "enforced, with violations reported");
+  assert.ok(proxy.includes('"/api/csp-report",'), "browsers report without a session");
   const health = read("src/app/api/health/route.ts");
   assert.ok(health.includes("crawler: { lastSeenMinutesAgo: mins }"));
   assert.ok(!/region|hostname|worker_id|\bid\b,/.test(health.slice(health.indexOf("select floor"), health.indexOf("as mins"))), "a number only");

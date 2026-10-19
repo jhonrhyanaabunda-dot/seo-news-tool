@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE = "a3_session";
 // API routes listed here authenticate with their own bearer secrets instead of a session cookie.
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/bot", "/api/health", "/api/cron", "/api/crawl-jobs"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/bot", "/api/health", "/api/csp-report", "/api/cron", "/api/crawl-jobs"];
 
 /**
  * Edge gate: redirects unauthenticated browser requests to /login and adds
@@ -39,9 +39,9 @@ export function proxy(request: NextRequest) {
   res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   // HTTPS only, for two years, on this host and any subdomain.
   res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
-  // Report-only first: browsers flag anything that would be blocked without breaking a page.
-  // Once a release shows no violations, rename the header to Content-Security-Policy to enforce it.
-  res.headers.set("Content-Security-Policy-Report-Only", CSP);
+  // Enforced: the browser tests (e2e/pages.e2e.mts) load every screen of a production build and
+  // fail on any policy violation; violations from real browsers are logged via /api/csp-report.
+  res.headers.set("Content-Security-Policy", CSP);
   return res;
 }
 
@@ -61,6 +61,7 @@ const CSP = [
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
+  "report-uri /api/csp-report",
 ].join("; ");
 
 export const config = {

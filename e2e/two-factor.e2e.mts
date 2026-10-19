@@ -39,7 +39,8 @@ ck("QR code and key are shown", key.length >= 32, key);
 await page.screenshot({ path: `${SHOTS}/account-setup.png`, fullPage: true });
 await page.fill("#setup-code", "000000"); await page.click("text=Turn on two-factor login");
 ck("a wrong first code is refused", await seen("That code is not right"));
-await page.fill("#setup-code", totpCode(key, totpStep())); await page.click("text=Turn on two-factor login");
+const setupCode = totpCode(key, totpStep());
+await page.fill("#setup-code", setupCode); await page.click("text=Turn on two-factor login");
 await page.waitForSelector("text=Save these recovery codes");
 const codes = await page.locator("ul li.select-all").allInnerTexts();
 ck("10 recovery codes are shown once", codes.length === 10, String(codes.length));
@@ -58,11 +59,12 @@ ck("no access before the code", new URL(page.url()).pathname === "/login", page.
 await page.goto(`${BASE}/login/verify`);
 await page.fill("#code", "123456"); await page.click("button[type=submit]");
 ck("a wrong code is refused", await seen("That code is not right"));
-const before = totpStep();
-await page.fill("#code", totpCode(key, totpStep())); await page.click("button[type=submit]");
-const replayRefused = await seen("That code is not right", 15000);
-const sameWindow = totpStep() === before;
-if (sameWindow) ck("the code already used at setup cannot be replayed", replayRefused);
+// Replay the exact code used at setup: refused whether it is still inside the drift window (already used) or older.
+await page.fill("#code", setupCode);
+await Promise.all([page.waitForResponse((r: { request(): { method(): string } }) => r.request().method() === "POST"), page.click("button[type=submit]")]);
+await page.waitForTimeout(500);
+const replayRefused = new URL(page.url()).pathname === "/login/verify";
+ck("the code already used at setup cannot be replayed", replayRefused, page.url());
 if (new URL(page.url()).pathname !== "/") {
   await waitNextStep();
   await page.fill("#code", totpCode(key, totpStep())); await page.click("button[type=submit]");
