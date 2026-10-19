@@ -18,7 +18,7 @@ const globalForDb = globalThis as unknown as { __a3Sql?: postgres.Sql };
 
 function createClient() {
   return postgres(env().DATABASE_URL, {
-    max: env().NODE_ENV === "production" ? 3 : 5,
+    max: env().DATABASE_POOL_MAX ?? (env().NODE_ENV === "production" ? 3 : 5),
     idle_timeout: 20,
     connect_timeout: 15,
     prepare: false,

@@ -32,3 +32,23 @@ jobs:
           CRON_SECRET: ci-placeholder-secret-0000
           APP_URL: http://localhost:3000
           NEXT_TELEMETRY_DISABLED: "1"
+
+  # The browser tests (e2e/): a throwaway in-memory database, the app in dev mode and
+  # headless Chrome (preinstalled on GitHub's Ubuntu runners). No secrets needed.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/shots/

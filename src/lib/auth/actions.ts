@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -11,6 +11,8 @@ import { checkRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { verifyPassword } from "./password";
 import { safeNextPath } from "./safe-next";
 import { createSession, destroySession } from "./session";
+import { env } from "@/lib/env";
+import { SECOND_FACTOR_COOKIE, SECOND_FACTOR_TTL_MS, consumeRecoveryCode, decryptTotpSecret, readTicket, signTicket, verifyTotp } from "./totp";
 
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(320),
@@ -54,10 +56,59 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     return { error: "Incorrect email or password.", email: typedEmail };
   }
 
-  await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember: formData.get("remember") === "on" });
+  const remember = formData.get("remember") === "on";
+  // Two-factor accounts get no session yet: a short-lived signed ticket, redeemed on /login/verify.
+  if (user.totpEnabledAt && user.totpSecretEnc) {
+    const ticket = signTicket({ uid: user.id, remember, next: safeNextPath(parsed.data.next), exp: Date.now() + SECOND_FACTOR_TTL_MS }, env().AUTH_SECRET);
+    (await cookies()).set(SECOND_FACTOR_COOKIE, ticket, { httpOnly: true, sameSite: "lax", secure: env().NODE_ENV === "production", path: "/", maxAge: SECOND_FACTOR_TTL_MS / 1000 });
+    redirect("/login/verify");
+  }
+
+  await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember });
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
   redirect(safeNextPath(parsed.data.next));
+}
+
+export type VerifyState = { error?: string } | undefined;
+
+/** Second sign-in step: a 6-digit authenticator code, or one of the recovery codes. */
+export async function verifySecondFactorAction(_prev: VerifyState, formData: FormData): Promise<VerifyState> {
+  const jar = await cookies();
+  const ticket = readTicket(jar.get(SECOND_FACTOR_COOKIE)?.value, env().AUTH_SECRET);
+  if (!ticket) return { error: "This sign-in has expired. Please enter your email and password again." };
+  const h = await headers();
+  const ip = clientIp(h);
+  const [userLimit, ipLimit] = await Promise.all([
+    checkRateLimit({ key: `2fa:user:${ticket.uid}`, limit: 6, windowSeconds: 900 }),
+    checkRateLimit({ key: `2fa:ip:${ip}`, limit: 30, windowSeconds: 900 }),
+  ]);
+  if (!userLimit.allowed || !ipLimit.allowed) {
+    await logger.warn("auth", "Two-factor rate limit hit", { ip, userId: ticket.uid });
+    return { error: "Too many attempts. Please wait 15 minutes and try again." };
+  }
+
+  const code = String(formData.get("code") ?? "").trim().slice(0, 40);
+  const [user] = await db.select().from(users).where(eq(users.id, ticket.uid)).limit(1);
+  if (!user || !user.isActive || !user.totpEnabledAt || !user.totpSecretEnc) return { error: "This sign-in has expired. Please enter your email and password again." };
+
+  const secret = decryptTotpSecret(user.totpSecretEnc, env().AUTH_SECRET);
+  const step = verifyTotp(secret, code, user.totpLastStep ?? null);
+  if (step !== null) {
+    await db.update(users).set({ totpLastStep: step, lastLoginAt: new Date() }).where(eq(users.id, user.id));
+  } else {
+    const left = consumeRecoveryCode(code, user.totpRecoveryHashes ?? [], env().AUTH_SECRET);
+    if (!left) {
+      await logger.warn("auth", "Two-factor code rejected", { ip, userId: user.id });
+      return { error: "That code is not right. Check the app and try the current code." };
+    }
+    await db.update(users).set({ totpRecoveryHashes: left, lastLoginAt: new Date() }).where(eq(users.id, user.id));
+    await logger.warn("auth", "Signed in with a recovery code", { userId: user.id, recoveryCodesLeft: left.length });
+  }
+
+  jar.delete(SECOND_FACTOR_COOKIE);
+  await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember: ticket.remember });
+  redirect(safeNextPath(ticket.next));
 }
 
 export async function logoutAction() {

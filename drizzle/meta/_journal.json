@@ -127,6 +127,13 @@
       "when": 1791767330542,
       "tag": "0017_seo_scans_latest_completed_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792371202578,
+      "tag": "0018_users_two_factor",
+      "breakpoints": true
     }
   ]
 }

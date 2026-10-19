@@ -65,6 +65,13 @@ export const users = pgTable(
     role: userRoleEnum("role").notNull().default("viewer"),
     isActive: boolean("is_active").notNull().default(true),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** Two-factor login (TOTP). The secret is AES-256-GCM encrypted (lib/auth/totp.ts); null = not set up. */
+    totpSecretEnc: text("totp_secret_enc"),
+    totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
+    /** Last accepted 30-second step, so a code cannot be used twice. */
+    totpLastStep: bigint("totp_last_step", { mode: "number" }),
+    /** Hashes of the unused one-time recovery codes. */
+    totpRecoveryHashes: jsonb("totp_recovery_hashes").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

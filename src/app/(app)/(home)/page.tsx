@@ -11,6 +11,9 @@ import { SubmitButton } from "@/components/client/submit-button";
 import { env } from "@/lib/env";
 import { getDashboardSummary, getDealerRows } from "@/lib/queries/dashboard";
 import { getSettings } from "@/lib/settings";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 import { EmptyState, MetaStat, Notice, PageHeader, StatCard } from "@/components/ui";
 import { DealershipTable, type DealerTableRow } from "@/components/client/dealership-table";
 import { fmtDateTime, fmtRelative } from "@/components/format";
@@ -35,7 +38,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // which of many sites needs A3's attention today.
   if (isClient(user)) return <ClientLanding allowed={allowed ?? []} tz={tz} />;
 
-  const [rows, settings] = await Promise.all([getDealerRows(allowed), getSettings()]);
+  const [rows, settings, [me]] = await Promise.all([
+    getDealerRows(allowed),
+    getSettings(),
+    db.select({ totpEnabledAt: users.totpEnabledAt }).from(users).where(eq(users.id, user.id)).limit(1),
+  ]);
   const summary = await getDashboardSummary(rows, allowed);
   const now = summary.generatedAt;
 
@@ -60,6 +67,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return (
     <>
       {error === "forbidden" && <Notice tone="warning">That area is only available to administrators.</Notice>}
+      {user.role === "admin" && !me?.totpEnabledAt && (
+        <Notice tone="accent">
+          Protect this administrator account with two-factor login: a code from your phone after the password.{" "}
+          <Link href="/account#two-factor" className="font-medium underline">
+            Set it up
+          </Link>
+        </Notice>
+      )}
       {settings.schedulerPaused && <Notice tone="warning">Scheduled scanning is paused. Scans only run when requested manually. {user.role === "admin" && <Link href="/admin/settings" className="underline">Change in Settings</Link>}</Notice>}
       <PageHeader
         title="Dashboard"

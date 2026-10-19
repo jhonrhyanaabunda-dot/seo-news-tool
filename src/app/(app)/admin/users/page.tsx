@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { getDealershipAssignments, getUsers } from "@/lib/queries/system";
 import { getDealershipOptions } from "@/lib/queries/news";
 import { deleteUserAction, updateUserAction } from "@/app/actions/users";
+import { adminResetTwoFactorAction } from "@/app/actions/two-factor";
 import { CreateUserForm, DealershipAccessForm, EditUserForm, ResetPasswordForm } from "@/components/admin/user-forms";
 import { SubmitButton } from "@/components/client/submit-button";
 import { Badge, Card, PageHeader, TableWrap } from "@/components/ui";
@@ -44,7 +45,12 @@ export default async function UsersPage() {
                     <EditUserForm user={{ id: u.id, name: u.name, email: u.email }} />
                     {u.role === "client" && <DealershipAccessForm userId={u.id} email={u.email} options={dealerOptions} assigned={assignments.get(u.id) ?? []} />}
                   </td>
-                  <td>{u.role === "admin" ? <Badge tone="accent">Administrator</Badge> : u.role === "client" ? <Badge tone="warning">Dealership</Badge> : <Badge>Viewer</Badge>}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-1.5">
+                      {u.role === "admin" ? <Badge tone="accent">Administrator</Badge> : u.role === "client" ? <Badge tone="warning">Dealership</Badge> : <Badge>Viewer</Badge>}
+                      {u.totpEnabledAt ? <Badge tone="success" dot>2FA on</Badge> : <Badge dot>2FA off</Badge>}
+                    </div>
+                  </td>
                   <td className="whitespace-nowrap text-slate-600">{fmtDateTime(u.lastLoginAt, tz)}</td>
                   <td>
                     {u.id !== me.id && (
@@ -62,6 +68,14 @@ export default async function UsersPage() {
                           </SubmitButton>
                         </form>
                         <ResetPasswordForm userId={u.id} />
+                        {u.totpEnabledAt && (
+                          <form action={adminResetTwoFactorAction}>
+                            <input type="hidden" name="id" value={u.id} />
+                            <SubmitButton className="btn btn-sm" confirm={`Reset two-factor login for ${u.email}? Use this when they have lost both their phone and their recovery codes; they can set it up again after signing in.`} pendingText="…">
+                              Reset 2FA
+                            </SubmitButton>
+                          </form>
+                        )}
                         <form action={deleteUserAction}>
                           <input type="hidden" name="userId" value={u.id} />
                           <SubmitButton className="btn-danger btn-sm" confirm={`Delete ${u.email}? This permanently removes the account and signs them out. It cannot be undone.`} pendingText="…">

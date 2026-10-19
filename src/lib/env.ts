@@ -11,6 +11,8 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DATABASE_URL_UNPOOLED: z.string().optional(),
+  /** Connections this process may open (default 3 in production, 5 in development). Tests against a single-connection database set 1. */
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   AUTH_SECRET: z.string().min(16, "AUTH_SECRET must be at least 16 characters"),
   APP_TIMEZONE: z.string().default("America/Chicago"),
