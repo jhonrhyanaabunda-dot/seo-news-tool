@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/guards";
 import { accessibleDealershipIds, isClient } from "@/lib/auth/tenant";
 import { getClientDashboard } from "@/lib/queries/client-dashboard";
 import { ClientDashboardView } from "@/components/client-dashboard";
+import { getSpeedData } from "@/lib/queries/performance";
 import { scanNowAction } from "@/app/actions/dealerships";
 import { SubmitButton } from "@/components/client/submit-button";
 import { env } from "@/lib/env";
@@ -18,6 +19,9 @@ import { users } from "@/lib/db/schema";
 import { EmptyState, MetaStat, Notice, PageHeader, StatCard } from "@/components/ui";
 import { DealershipTable, type DealerTableRow } from "@/components/client/dealership-table";
 import { fmtDate, fmtDateTime, fmtRelative } from "@/components/format";
+import { GettingStarted } from "@/components/getting-started";
+import { gettingStartedItems } from "@/lib/onboarding/checklist";
+import { getGettingStartedState } from "@/lib/queries/onboarding";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -40,10 +44,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // which of many sites needs A3's attention today.
   if (isClient(user)) return <ClientLanding allowed={allowed ?? []} tz={tz} />;
 
-  const [rows, settings, [me]] = await Promise.all([
+  const [rows, settings, [me], setup] = await Promise.all([
     getDealerRows(allowed),
     getSettings(),
     db.select({ totpEnabledAt: users.totpEnabledAt }).from(users).where(eq(users.id, user.id)).limit(1),
+    user.role === "admin" ? getGettingStartedState() : Promise.resolve(null),
   ]);
   const [portfolioTrend, movers] = await Promise.all([getPortfolioTrend(allowed, trendWindow, tz), getScoreMovers(allowed, 30)]);
   const summary = await getDashboardSummary(rows, allowed);
@@ -90,6 +95,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           )
         }
       />
+
+      {setup && <GettingStarted items={gettingStartedItems(setup)} />}
 
       {/* The four numbers worth acting on. Everything else is context, below. */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -176,6 +183,7 @@ async function ClientLanding({ allowed, tz }: { allowed: number[]; tz: string })
       <ClientDashboardView
         data={data}
         tz={tz}
+        speed={await getSpeedData(data.dealership.id)}
         canScan={data.dealership.seoEnabled && !data.activeScan}
         scanAction={
           <form action={scanNowAction}>

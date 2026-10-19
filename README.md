@@ -3,7 +3,7 @@
 A production web application that automatically monitors A3 dealership websites for SEO problems, tracks dealership and automotive news, keeps history, detects meaningful changes, and emails summaries and critical alerts. It is designed to be deployed on **Vercel** with a managed **PostgreSQL** database, so no computer needs to stay on.
 
 - **Dealership management** — add/edit/remove dealerships (name, website, brand, dealer group, location, contacts, SEO/news toggles, schedule override). New dealerships are scanned automatically; no code changes.
-- **SEO monitoring** — polite, robots.txt-respecting crawler that checks 39 rules: HTTP status, HTTPS, titles, meta descriptions, H1/H2, canonicals, robots.txt, XML sitemaps, indexability, internal/external/broken links, image alt text, duplicate titles/descriptions, structured data, Open Graph, key dealership pages, response time, HTML weight, render-blocking scripts, mixed content, client-side redirects.
+- **SEO monitoring** — polite, robots.txt-respecting crawler that checks 46 rules: HTTP status, HTTPS, redirect chains, links to redirecting URLs, hreflang, vehicle detail pages (price, vehicle schema, sold vehicles still indexed), name/address/phone consistency, titles, meta descriptions, H1/H2, canonicals, robots.txt, XML sitemaps, indexability, internal/external/broken links, image alt text, duplicate titles/descriptions, structured data, Open Graph, key dealership pages, response time, HTML weight, render-blocking scripts, mixed content, client-side redirects.
 - **Deterministic scoring** — a rule-based 0–100 score across 7 categories, configurable in one file. No AI is used for scoring; identical input produces an identical score.
 - **News monitoring** — a source hierarchy: the dealership's own news feed, manufacturer newsroom feeds, publisher feeds, then Google News RSS / Bing News RSS / optional NewsAPI & GNews, then news pages the crawler already read on the dealership site. De-duplicated by URL, headline and story (the most authoritative copy wins); reviewers mark articles Relevant / Not relevant / Reviewed.
 - **Protected pages, handled gracefully** — Cloudflare challenges, 403s and 429s are classified per URL (PROTECTED / ACCESS_DENIED / RATE_LIMITED), shown as "Protected / Unable to analyze", and never counted as SEO problems. A scan with some protected pages is **PARTIAL**, not failed.
@@ -11,7 +11,7 @@ A production web application that automatically monitors A3 dealership websites 
 - **AI-assisted SEO reports** — executive summary and prioritised actions written by Claude from stored crawler findings only; anything not matching the findings is discarded. Cached by input hash, capped per month (default 300), with a deterministic fallback.
 - **U.S. crawler workers & crawl-job API** — the dashboard stays on Vercel; crawling runs on a U.S. container worker (Fly.io, Render, Railway, AWS…) that pulls jobs from Postgres. `POST /api/crawl-jobs` queues work machine-to-machine.
 - **Change detection & email** — daily/weekly digests only when something meaningful changed, plus immediate alerts for critical problems. Duplicate-proof.
-- **Security** — authentication with roles, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint.
+- **Security** — authentication with roles, optional two-factor sign-in (authenticator app, can be required for admins), an admin audit log, an enforced Content Security Policy, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint, Dependabot and `npm audit` in CI.
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architecture, the Vercel feasibility analysis, the database schema and capacity figures.
 
@@ -36,6 +36,8 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architec
 15. [Crawl-job API](#15-crawl-job-api)
 16. [SEO reports (AI-assisted)](#16-seo-reports-ai-assisted)
 17. [Production deployment: Vercel + U.S. crawler worker](#17-production-deployment-vercel--us-crawler-worker)
+18. [Search Console, Google listing and competitors](#18-search-console-google-listing-and-competitors)
+19. [History, issue workflow, branding & onboarding](#19-history-issue-workflow-branding--onboarding)
 
 ---
 
@@ -200,6 +202,7 @@ Overlapping ticks are safe: scans, jobs, digests and emails are all de-duplicate
 * **Crawler offline alert** (`CRAWLER_MODE=worker`): when SEO scans have waited 2 hours with no crawler worker online, the management recipients (or, if none are set, all active admins) get one email naming the last crawler seen, and one more when a crawler is back. Queued scans are never lost (`src/lib/crawler/offline-alert.ts`).
 * **Recipients** = each dealership's notification emails + the management recipients from Settings (who receive everything).
 * **No duplicates**: each email has a unique key recorded before sending; retries and overlapping ticks skip already-sent emails. The Admin → System page shows the full email log.
+* **Monthly SEO report** (off by default; Settings → "Monthly SEO report") — on the 1st of each month, at the digest hour, each active, scanned dealership gets its report emailed to its notification addresses and the management recipients. "Send monthly report preview to me" in Settings sends the latest report to the admin only.
 * **Provider**: `EMAIL_PROVIDER=resend` (HTTPS API, recommended on Vercel) or `smtp` (Google Workspace, SES, Postmark…). `console` prints emails to the log for development.
 
 ## 8. SEO scoring rules
@@ -213,6 +216,22 @@ All rules, weights and thresholds are in **`src/lib/seo/checks/config.ts`**:
 * `UNVERIFIABLE_LINK_HOSTS` — external domains whose bot protection makes link checks unreliable.
 
 Score = weighted mean of category scores; category score = `100 × (1 − deducted / applicable points)`. Rules with no applicable pages are excluded. After editing, run `npm test` (includes determinism tests). New scans use the new rules; historical scores are unchanged.
+
+**Scanner checks added in October 2026** (46 checks in total). Points are deliberately modest so existing scores move little; a site failing every one of them loses about 8–9 points, a typical site 0–3.
+
+| Check | Category · severity · points | Priority | Flags when |
+|---|---|---|---|
+| `redirect_chain` | Technical · warning · 3 | Medium | A crawled page (not the homepage, whose start URL is the admin's entry) was reached through 2+ redirects. |
+| `internal_link_redirects` | Links · info · 2 | Low | An internal link points at an old path that now redirects, or at `http://` on an HTTPS site. Trailing-slash, `www.` and letter-case normalisation, sign-in walls, query-only changes, off-site targets and refused/unverified checks are ignored. |
+| `hreflang_invalid` | Metadata · warning · 3 | Medium | A page that declares hreflang uses an invalid code (syntax-checked; `en_US`, `en-UK`, country-as-language), omits itself, has 2+ languages but no `x-default`, maps one code to two URLs, or a crawled alternate does not link back. Pages without hreflang are not applicable. |
+| `vdp_price_missing` | Content · warning · 2 | Medium | A confirmed vehicle detail page (VDP URL plus a VIN or vehicle schema) has no price in its main content, its structured data, `product:price` meta or inline JavaScript data, and no explicit statement such as "Call for price" or "Unlock our best price" (those pass: they are often a manufacturer pricing rule). Sold vehicles are exempt. |
+| `vdp_schema_missing` | Structured data · warning · 4 | Medium | A confirmed VDP has no Vehicle/Car/Product structured data. VDPs are excluded from `schema_missing`, so a page is never penalised twice. |
+| `vdp_sold_indexed` | Crawlability · warning · 3 | Medium | A confirmed VDP marked `SoldOut`/`Discontinued` in schema, or saying "this vehicle has been sold / is no longer available" in its main content, returns 200, is not noindex and is not canonicalised elsewhere. |
+| `nap_inconsistent` | Structured data · warning · 3 (site) | Medium | The same dealership (by name) is given different phone numbers or addresses in top-level structured data on different pages. Departments, other rooftops, unnamed entities and visible numbers (sales/service/parts, call tracking) are never compared. |
+
+Navigation, header and footer text is excluded when looking for prices and sold notices, so mega-menu links ("Cars under $15,000") and disclaimers cannot trigger or mask a finding.
+
+**Core Web Vitals (not scored).** With `PAGESPEED_API_KEY` set, a completed, directly crawled scan queues a low-priority `performance_snapshot` job that measures the homepage and one vehicle detail page (mobile) through PageSpeed Insights: Lighthouse lab metrics plus Chrome field data (LCP, INP, CLS p75) when Google has it. At most one snapshot per dealership per `PERFORMANCE_SNAPSHOT_DAYS` (default 7, 0 = off), decided from stored timestamps; a failed attempt waits 24 h. Results live in `performance_snapshots` (kept for the history retention period, independent of scan detail pruning) and appear in the **Speed** card on the dealership overview, rated with Google's thresholds (LCP 2.5 s / 4 s, INP 200 / 500 ms, CLS 0.1 / 0.25).
 
 Status bands: **85–100 Good**, **65–84 Needs improvement**, **below 65 Poor**. A scan where the site was down or the scanner was blocked shows "not scored" rather than a misleading number.
 
@@ -346,8 +365,15 @@ See **`.env.example`** for the full, commented list. Required: `DATABASE_URL`, `
 * *A dealership shows "Scan blocked"* → see [section 10](#10-websites-that-block-the-scanner).
 * *Website down alerts* are only sent when the homepage cannot be loaded (DNS, connection, timeouts, 5xx or 404/410), and only when availability changes.
 * *Emails not arriving* → Settings → Send test email; check the System email log for the provider's error; verify the sending domain in Resend.
-* Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings).
+* Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings). One compact monthly snapshot per dealership (`seo_monthly_snapshots`) is kept for 36 months, independently of both.
 * Logs: structured JSON in Vercel's function logs. Warnings and errors are also stored in `system_logs`.
+
+### Security: two-factor sign-in, audit log, CSP
+
+* **Two-factor sign-in (TOTP).** Optional per user, under **Account**: scan the QR code into an authenticator app, confirm with a code, and save the ten one-time recovery codes. Sign-in then asks for a code (`/login/verify`) before a session is created. Secrets are stored encrypted (AES-256-GCM) and recovery codes hashed. Admins can reset another user's two-factor from **Users**; `npm run user:2fa-reset -- --email …` covers a locked-out sole admin.
+* **Audit log** (**Admin → Audit log**, also linked from System). Every administrative change — users, roles, passwords, two-factor, dealerships, keywords, news sources, SEO feeds, settings, scans, reports — plus sign-ins, failed sign-ins and sign-outs, with who, when, IP and browser. Filter by action or user. Never contains passwords, tokens, secrets or codes. Kept 365 days.
+* **Content Security Policy** is enforced by `src/proxy.ts` (same-origin scripts, styles, fonts and connections; images also from any `https:` URL, for dealership logos; no framing). Violations from real browsers are reported to `/api/csp-report` and appear as warnings in System → logs.
+* **Dependencies:** Dependabot (`.github/dependabot.yml`) opens grouped minor/patch PRs weekly and GitHub Actions updates monthly; CI fails on high or critical advisories in production dependencies (`npm audit --omit=dev`).
 
 ## 14. Testing
 
@@ -404,3 +430,62 @@ User (Philippines) → Vercel (Next.js dashboard + API + cron) → Postgres job 
 4. **Verify:** Admin → System → *Crawler regions* shows the worker online; "Scan now" on a dealership shows `[Crawler] …` lines in the worker logs and results on the dashboard within minutes.
 
 The worker needs no public endpoint and holds no state: it can be stopped, moved to another provider or scaled out at any time, and queued scans simply wait in Postgres (or fall back to the default region after 30 minutes).
+
+## 18. Search Console, Google listing and competitors
+
+Optional data shown on each dealership's **Search performance** tab (clients see it for their own dealership once something is connected), on the Admin → System page, and as a small "Search visibility" section in reports. None of it is part of the SEO score. Without the variables below every part shows "Not connected" and the app behaves exactly as before.
+
+| Source | What it shows | Schedule (job type) |
+|---|---|---|
+| Google Search Console (service account) | Clicks, impressions, CTR, average position — last 28 days vs the 28 days before, weekly trend, top 10 searches and pages | Daily (`gsc_sync`): ~16 months on the first sync, then the last 10 days again (data arrives 2–3 days late) |
+| Google listing via Places API (New) | Rating, review count and change vs ~30 days earlier, review trend, business status; flags when the listing's website is not the dealership's or the business is not operational | Weekly (`places_sync`) |
+| Competitors (up to 3 per dealership) | Homepage comparison: HTTPS, title, description, H1, dealer schema, viewport, HTML size, response time, plus Google rating/reviews and PageSpeed when configured | Weekly (`competitor_audit`): robots.txt + one homepage request, honest User-Agent; "blocked" when robots.txt or site security refuses, never bypassed |
+
+The jobs run at low priority on the normal queue (Vercel ticks or the worker; no browser needed), one dealership at a time with sequential API calls, so quotas are far from reached. Admins can force a refresh with **Sync now** on the tab.
+
+### Google Search Console
+
+1. In [Google Cloud console](https://console.cloud.google.com/) create (or pick) a project → **APIs & Services → Library** → enable **Google Search Console API**.
+2. **IAM & Admin → Service accounts → Create service account** (no roles needed) → open it → **Keys → Add key → Create new key → JSON**. Keep the file secret.
+3. Set the variable, e.g. on Vercel (**Project → Settings → Environment Variables**, Production): `GOOGLE_SERVICE_ACCOUNT_JSON` = the whole JSON file contents (or the file base64-encoded: `base64 -w0 key.json`). Alternatively set `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` (the `private_key` value; escaped `\n` is fine). Redeploy. Admin → System → *Search Console* should say **Connected** and show the service account email.
+4. For each dealership: in [Search Console](https://search.google.com/search-console) open the property → **Settings → Users and permissions → Add user** → the service account email, permission **Restricted**. (A property owner must do this.)
+5. In the app: **Edit dealership → Google data → Search Console property**, exactly as the property picker shows it: `sc-domain:example.com` for a domain property, or `https://www.example.com/` for a URL-prefix property. The first sync runs within one cron tick (about 10 minutes). A 403 error on the tab means step 4 is missing; 404 means the property name does not match.
+
+### Google listing (Places API (New))
+
+The Business Profile API needs special approval from Google, so listing data comes from the public Places API instead.
+
+1. In the same Google Cloud project, enable billing and **Places API (New)** (not the legacy "Places API").
+2. **APIs & Services → Credentials → Create credentials → API key** → **Restrict key → API restrictions → Places API (New)**. (No application restriction is needed: the key is only used server-side and sent as a header.)
+3. Set `GOOGLE_PLACES_API_KEY` on Vercel (and on the worker if it runs integration jobs) and redeploy.
+4. **Edit dealership → Google data → Find place** searches by name and city (admin only, rate-limited to 30 searches/hour); click **Use this** on the right listing and save. Place Details are requested with a minimal field mask (rating, review count, status, opening-hours presence, website, phone, address, Maps link) once a week.
+
+### Competitors
+
+**Edit dealership → Competitors**: add up to three competitor websites (validated like dealership URLs: public hosts only). Each is checked right away and then weekly. With `GOOGLE_PLACES_API_KEY` set, the competitor's Google listing is found by name + city and matched on its website host. With `PAGESPEED_API_KEY`, its mobile PageSpeed score is included. The dealership's own column comes from its latest scan (homepage row) and listing snapshot. This is a homepage comparison, not a competitor SEO score.
+
+Tables: `dealership_integrations` (sync status and readable last error per dealership), `gsc_daily`, `gsc_top_items`, `place_snapshots`, `competitors`, `competitor_snapshots`; columns `dealerships.gsc_property` and `dealerships.google_place_id`. Code: `src/lib/integrations/`.
+## 19. History, issue workflow, branding & onboarding
+
+### Long-term monthly history
+
+Page and issue detail rows are pruned after the 10 newest scans per dealership, so a month-old scan has counts but no findings. To keep a real history, every successfully completed scan also writes a **monthly snapshot** (`seo_monthly_snapshots`, one row per dealership per month in `APP_TIMEZONE`): score, category scores, counts, and a per-check summary (check, severity, priority, affected pages, up to 5 sample URLs). The latest *comparable* scan of the month wins — completed, scored, site reachable, a full audit, neither blocked nor partially blocked — so a month whose only checks were refused by the website has no snapshot rather than a misleading one. Daily maintenance backfills snapshots from retained scans *before* it prunes detail rows (which also fills history for data that existed before this feature). Snapshots are kept 36 months and have no foreign key to the scan, so they survive `retentionDays`.
+
+The dealership **Crawl history** tab shows a 12-month score chart, a per-month table, and a month-over-month comparison (new, resolved, improved and worsened checks). Code: `src/lib/history/`.
+
+### Issue workflow
+
+On **SEO issues** (and in bulk per check on **Opportunities**), admins can set an issue's status — *Open*, *In progress*, *Marked fixed* or *Ignored* — with an assignee (A3 staff) and a staff-only note. Viewers see statuses, assignees and notes read-only; dealership logins see only the status. State is stored per dealership and issue fingerprint (`issue_states`), so it carries across scans. Filter chips on the issues view filter by status, including *Came back*.
+
+When a scan completes, every issue marked fixed is checked against it: if the scan still finds it, it is reopened and flagged **Came back** until someone re-decides; if a full scan evaluated the page (or, for site-wide checks, the site) and no longer finds it, it becomes **Fixed · verified**. A partial or blocked scan never verifies anything.
+
+**The score never reads workflow state.** It is calculated from what the scan finds, so marking an issue fixed or ignored changes nothing until a scan stops finding it. *Ignored* issues are de-emphasised and left out of "what to do next" lists (dashboard, opportunities and the report page) but are still counted in the score and the counts. This is stated in the UI next to the statuses. Code: `src/lib/issues/`.
+
+### Dealership branding
+
+**Edit dealership → Branding**: a logo URL (https on a public host, ≤ 500 characters; checked through the same SSRF guard as the website, because the PDF worker's browser loads it) and a brand colour (`#RRGGBB`). They appear on the report page and PDF cover and in the Reports tab. Header text is chosen automatically — white or black, whichever contrasts more (always ≥ 4.5:1). Without them, A3 styling is used. The logo is only ever rendered as an `<img>`; the app server never fetches it. Code: `src/lib/dealerships/branding.ts`.
+
+### Onboarding
+
+* **Dealership logins** see a welcome guide on their first visit: the score, opportunities, pages that could not be checked, findings and their status, reports/PDF and emails, each linking to where it lives. "Got it" dismisses it (`users.onboarded_at`); it stays available under **Help** in the navigation and from the account page.
+* **Admins** see a **Getting started** checklist on the dashboard, derived from real state: dealerships added, a scan completed, recipients configured, email provider configured, PageSpeed key present, AI key present (the last two optional). Each item links to where it is fixed, and the checklist disappears once the required items are done.

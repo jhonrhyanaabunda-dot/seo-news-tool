@@ -21,6 +21,7 @@ Rules:
 - Quote numbers only when they appear in the findings (scores, page counts, affected pages). Do not calculate new figures.
 - Pages in findings.protectedPages could not be analysed because the website restricted automated access. They are not SEO problems; never describe them as errors on the site.
 - If findings.scan.limitedHomepageCheckOnly is true, say that only a limited homepage check was possible.
+- findings.searchConsole (Google Search traffic) and findings.googleListing (Google rating and reviews), when present, are context only: they are not part of the SEO score and must never be described as SEO issues. Do not compute changes between their periods.
 - News highlights may only reference article ids from findings.news. Leave newsSummary null and newsHighlights empty when there are no articles.
 - Write plainly for a non-technical reader. No markdown, no headings, no internal field names.`;
 

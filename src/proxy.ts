@@ -25,12 +25,9 @@ export function proxy(request: NextRequest) {
     url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + request.nextUrl.search)}` : "";
     return NextResponse.redirect(url);
   }
-  if (pathname === "/login" && hasSession) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // No "/login → /" redirect on cookie presence here: a stale cookie (expired or
+  // revoked session) would bounce between / and /login forever. The login page
+  // itself sends signed-in users home after validating the session.
 
   const res = NextResponse.next();
   res.headers.set("X-Frame-Options", "DENY");
@@ -54,7 +51,8 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // https: for dealership logos (an admin-entered https URL on a public host, shown as <img> on reports).
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",

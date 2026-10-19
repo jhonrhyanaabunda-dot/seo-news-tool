@@ -10,6 +10,7 @@ import { PRIORITY_ORDER, priorityFor, reportGroupFor } from "@/lib/seo/priority"
 import { classifyPageResult, isAnalyzed, isProtected } from "@/lib/seo/result-class";
 import { crawlJobStatus } from "@/lib/jobs/status";
 import { getSettings } from "@/lib/settings";
+import { integrationFindings } from "@/lib/integrations/data";
 import { REPORT_VERSION, type FindingArticle, type ReportFindings } from "./types";
 
 const MAX_SAMPLE_URLS = 5;
@@ -61,8 +62,8 @@ export async function buildFindings(dealer: Dealership): Promise<ReportFindings 
         group: reportGroupFor(r.checkKey),
         priority: priorityFor(r.checkKey, r.severity),
         affectedPages: Number(r.affected),
-        // Link checks record one issue per broken link (on the first page it was found), so they count links, not pages.
-        unit: r.checkKey === "broken_internal_link" || r.checkKey === "broken_external_link" ? ("link" as const) : ("page" as const),
+        // Link checks record one issue per broken or redirecting link (on the first page it was found), so they count links, not pages.
+        unit: r.checkKey === "broken_internal_link" || r.checkKey === "broken_external_link" || r.checkKey === "internal_link_redirects" ? ("link" as const) : ("page" as const),
         sampleUrls: r.urls ?? [],
         example: r.example,
         recommendation: def?.recommendation ?? "",
@@ -106,6 +107,8 @@ export async function buildFindings(dealer: Dealership): Promise<ReportFindings 
     .map(([category, v]) => ({ category, label: CATEGORIES[category as Category]?.label ?? category, score: v.score }))
     .sort((a, b) => a.category.localeCompare(b.category));
   const change = scan.changeSummary;
+  // Search Console / Google listing context (optional fields; absent keys keep older findings hashes unchanged).
+  const external = await integrationFindings(dealer);
 
   return {
     version: REPORT_VERSION,
@@ -145,6 +148,7 @@ export async function buildFindings(dealer: Dealership): Promise<ReportFindings 
     },
     changes: change?.previousScanId ? { scoreDelta: change.scoreDelta, newIssues: change.newIssues.length, resolvedIssues: change.resolvedCount } : null,
     performance: ps && !ps.error ? { mobileScore: ps.performance, lcpMs: ps.lcpMs, cls: ps.cls } : null,
+    ...external,
     news: {
       periodDays: NEWS_PERIOD_DAYS,
       newCount: dealershipNews.filter((a) => a.relevance === "new").length,

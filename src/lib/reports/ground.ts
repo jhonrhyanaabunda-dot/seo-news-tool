@@ -15,7 +15,7 @@ import type { AiNarrative, ReportAction, ReportFindings, ReportNarrative } from 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Fields whose digits are not facts a sentence could quote (timestamps, addresses). */
-const NON_FACT_KEYS = new Set(["completedAt", "publishedAt", "url", "websiteUrl", "sampleUrls", "items"]);
+const NON_FACT_KEYS = new Set(["completedAt", "publishedAt", "url", "websiteUrl", "sampleUrls", "items", "periodStart", "periodEnd", "capturedOn"]);
 
 /**
  * Every number a report may quote: numeric values in the findings (scores,

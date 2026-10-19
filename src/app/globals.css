@@ -156,6 +156,8 @@ body {
 
 .doc-actions { display: flex; justify-content: flex-end; margin-bottom: 1.25rem; }
 .doc-cover { border-bottom: 2px solid var(--doc-ink); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+/* Dealership branding band (logo + colour); text colour is chosen for contrast in code. */
+.doc-dealer-band { display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 12pt; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .doc-brand { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.75rem; }
 .doc-logo { height: 1.9rem; width: auto; }
 .doc-brand-name { font-size: 9pt; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--doc-muted); }

@@ -9,6 +9,8 @@ import { canonicalHost } from "@/lib/seo/url";
 import { env } from "@/lib/env";
 import { allRegions } from "@/lib/crawler/regions";
 import { looksLikeUrl } from "@/lib/news/queries";
+import { INTEGRATION_FORM_FIELDS, parseIntegrationFields } from "@/lib/integrations/form";
+import { checkLogoUrlShape, normalizeBrandColor } from "./branding";
 
 const optionalText = (max: number) =>
   z
@@ -72,15 +74,42 @@ export const dealershipFormSchema = z.object({
   maxPages: optionalInt(5, 500),
   scanIntervalHours: optionalInt(1, 720),
   notes: optionalText(2000),
+  // Branding (product track): validated further in validateBranding below.
+  logoUrl: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : null)),
+  brandColor: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : null))
+    .refine((v) => v === null || normalizeBrandColor(v) !== null, "Enter the colour as #RRGGBB, e.g. #0F2747."),
 });
 
-export type DealershipFormErrors = Partial<Record<keyof z.input<typeof dealershipFormSchema> | "form", string>>;
+/**
+ * Logo: https, a public host (resolved through the same SSRF guard as the
+ * website, because the PDF worker's browser fetches it), at most 500 chars.
+ * Returns the stored value or a field error.
+ */
+async function validateLogoUrl(input: string | null): Promise<{ ok: true; value: string | null } | { ok: false; error: string }> {
+  if (!input) return { ok: true, value: null };
+  const shape = checkLogoUrlShape(input);
+  if (!shape.ok) return shape;
+  try {
+    await assertSafeUrl(shape.url);
+  } catch (err) {
+    return { ok: false, error: err instanceof UnsafeUrlError ? `${err.message}. The logo must be on a public website.` : "The logo address could not be verified." };
+  }
+  return { ok: true, value: shape.url };
+}
+
+export type DealershipFormErrors = Partial<Record<keyof z.input<typeof dealershipFormSchema> | (typeof INTEGRATION_FORM_FIELDS)[number] | "form", string>>;
 
 export async function validateDealershipForm(
   formData: FormData,
 ): Promise<{ ok: true; data: Omit<typeof dealerships.$inferInsert, "id"> } | { ok: false; errors: DealershipFormErrors }> {
   const raw = Object.fromEntries(
-    ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes"].map(
+    ["name", "websiteUrl", "brand", "dealerGroup", "city", "state", "websitePlatform", "sitemapUrl", "notificationEmails", "seoEnabled", "newsEnabled", "instantAlertsEnabled", "preferredRegion", "renderMode", "isActive", "maxPages", "scanIntervalHours", "notes", "logoUrl", "brandColor"].map(
       (k) => [k, formData.get(k) ?? undefined],
     ),
   );
@@ -94,6 +123,9 @@ export async function validateDealershipForm(
     return { ok: false, errors };
   }
   const v = parsed.data;
+  // Search Console property and Google place id (src/lib/integrations/form.ts).
+  const integrations = parseIntegrationFields(formData);
+  if (!integrations.ok) return { ok: false, errors: integrations.errors };
   const emails = parseEmailList(v.notificationEmails);
   if (emails.invalid.length) return { ok: false, errors: { notificationEmails: `These addresses are not valid: ${emails.invalid.join(", ")}` } };
 
@@ -124,6 +156,8 @@ export async function validateDealershipForm(
     }
     if (!sameSite) return { ok: false, errors: { sitemapUrl: "The sitemap must be on the dealership's own website." } };
   }
+  const logo = await validateLogoUrl(v.logoUrl);
+  if (!logo.ok) return { ok: false, errors: { logoUrl: logo.error } };
   return {
     ok: true,
     data: {
@@ -146,6 +180,9 @@ export async function validateDealershipForm(
       maxPages: v.maxPages,
       scanIntervalHours: v.scanIntervalHours,
       notes: v.notes,
+      ...integrations.data,
+      logoUrl: logo.value,
+      brandColor: normalizeBrandColor(v.brandColor),
     },
   };
 }

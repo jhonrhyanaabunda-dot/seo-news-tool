@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import QRCode from "qrcode";
 import { ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { requireUser } from "@/lib/auth/guards";
 import { TOTP_SETUP_COOKIE, decryptTotpSecret, otpauthUrl } from "@/lib/auth/totp";
 import { db } from "@/lib/db";
@@ -105,6 +106,14 @@ export default async function AccountPage() {
             )}
           </Card>
         </section>
+
+        {/* Product track (onboarding): the welcome guide can be reopened at any time. */}
+        <Card title="Help">
+          <p className="text-sm text-slate-600">What the score means, where to find what to fix, reports and PDFs, and which emails you receive.</p>
+          <Link href="/help" className="btn mt-3">
+            Open the welcome guide
+          </Link>
+        </Card>
       </div>
     </>
   );

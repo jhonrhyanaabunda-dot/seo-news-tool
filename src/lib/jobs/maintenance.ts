@@ -6,6 +6,8 @@ import { logger } from "@/lib/logger";
 import { pruneSeoArticles } from "@/lib/news/seo-industry";
 import { pruneExpiredPasswordResets } from "@/lib/auth/password-reset";
 import { pruneReportRenders } from "@/lib/reports/request-pdf";
+import { AUDIT_RETENTION_DAYS } from "@/lib/audit-shared";
+import { backfillMonthlySnapshots, pruneMonthlySnapshots } from "@/lib/history/snapshots";
 
 /** Scans per dealership whose page/issue detail rows are kept. Older scans keep their summary, score and fingerprints. */
 export const DETAIL_SCANS_KEPT = 10;
@@ -22,6 +24,11 @@ export async function runMaintenance() {
   const days = s.retentionDays;
   const result: Record<string, number> = {};
   const count = (r: unknown) => (r as { count?: number }).count ?? 0;
+
+  // Long-term monthly history first: a scan's per-check summary must be taken
+  // while its issue rows still exist, i.e. before the pruning just below.
+  result.monthlySnapshotsBackfilled = await backfillMonthlySnapshots();
+  result.monthlySnapshotsDeleted = await pruneMonthlySnapshots();
 
   const prune = await db.execute<{ id: number }>(sql`
     select id from (
@@ -46,10 +53,14 @@ export async function runMaintenance() {
     await db.execute(sql`delete from news_articles where detected_at < now() - make_interval(days => ${days}::int) and relevance in ('new', 'not_relevant')`),
   );
   result.seoArticlesDeleted = await pruneSeoArticles(days);
+  // Speed snapshots outlive scan detail pruning (they are the trend), but not the history retention period.
+  result.performanceSnapshotsDeleted = count(await db.execute(sql`delete from performance_snapshots where captured_at < now() - make_interval(days => ${days}::int)`));
   result.alertsDeleted = count(await db.execute(sql`delete from alerts where created_at < now() - make_interval(days => ${days}::int)`));
   result.emailsDeleted = count(await db.execute(sql`delete from email_reports where created_at < now() - make_interval(days => ${days}::int)`));
   result.jobsDeleted = count(await db.execute(sql`delete from jobs where status in ('completed','failed','cancelled') and created_at < now() - interval '30 days'`));
   result.logsDeleted = count(await db.execute(sql`delete from system_logs where created_at < now() - interval '90 days'`));
+  // The audit trail outlives operational logs (and the history setting): it answers "who did this?" months later.
+  result.auditLogsDeleted = count(await db.execute(sql`delete from audit_logs where created_at < now() - make_interval(days => ${AUDIT_RETENTION_DAYS}::int)`));
   // Crawler processes that stopped (restarts, redeploys) leave rows behind; a live crawler reports every few minutes.
   result.staleCrawlersDeleted = count(await db.execute(sql`delete from crawler_workers where last_seen_at < now() - make_interval(hours => ${STALE_CRAWLER_HOURS}::int)`));
   result.passwordResetsDeleted = await pruneExpiredPasswordResets();

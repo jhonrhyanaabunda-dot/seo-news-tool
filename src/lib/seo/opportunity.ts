@@ -32,6 +32,13 @@ export interface Opportunity {
   affectedPages: number | null;
   /** How many issue rows back this opportunity, whatever its scope. */
   findings: number;
+  /**
+   * Issue workflow counts for these findings (findings with no state are
+   * open). Presentation only: never part of ordering, scope or the score.
+   */
+  workflow?: Partial<Record<"open" | "in_progress" | "fixed" | "ignored", number>>;
+  /** Findings marked "ignored"; an opportunity with all of them ignored is left out of "what to do next" lists. */
+  ignoredFindings?: number;
 }
 
 /**

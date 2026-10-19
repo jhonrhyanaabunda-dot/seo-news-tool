@@ -4,12 +4,15 @@ import {
   bigserial,
   customType,
   boolean,
+  date,
+  doublePrecision,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -36,7 +39,10 @@ export const checkStatusEnum = pgEnum("check_status", ["pass", "warn", "fail", "
 export const relevanceEnum = pgEnum("news_relevance", ["new", "relevant", "not_relevant", "reviewed"]);
 export const keywordKindEnum = pgEnum("keyword_kind", ["dealership", "group", "brand", "local", "custom"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "completed", "failed", "cancelled"]);
-export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf"]);
+/** "performance_snapshot": Core Web Vitals through PageSpeed Insights, at most weekly per dealership (seo/performance-job.ts). */
+export const jobTypeEnum = pgEnum("job_type", ["seo_scan", "news_scan", "digest", "alert", "maintenance", "report", "industry_news", "password_reset", "report_pdf", "performance_snapshot",
+  // Data integrations: Search Console (daily), Google listing via Places (weekly), competitor homepage audit (weekly).
+  "gsc_sync", "places_sync", "competitor_audit"]);
 export const emailKindEnum = pgEnum("email_kind", ["daily_digest", "weekly_digest", "alert", "test", "report", "password_reset"]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed", "skipped"]);
 export const alertTypeEnum = pgEnum("alert_type", [
@@ -72,6 +78,8 @@ export const users = pgTable(
     totpLastStep: bigint("totp_last_step", { mode: "number" }),
     /** Hashes of the unused one-time recovery codes. */
     totpRecoveryHashes: jsonb("totp_recovery_hashes").$type<string[]>(),
+    /** Product track (onboarding): when a dealership login dismissed the first-visit welcome guide. Null = show it. */
+    onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -155,10 +163,24 @@ export const dealerships = pgTable(
     detectedPlatform: varchar("detected_platform", { length: 60 }),
     /** Sitemap to use first, when the site's sitemap is not at /sitemap.xml or listed in robots.txt. */
     sitemapUrl: varchar("sitemap_url", { length: 500 }),
+    /* ── Data integrations (see src/lib/integrations/) ── */
+    /** Search Console property, e.g. "sc-domain:example.com" or "https://www.example.com/". Null = not connected. */
+    gscProperty: varchar("gsc_property", { length: 300 }),
+    /** Google Places (New) place id of the dealership's Google Business Profile listing. Null = not connected. */
+    googlePlaceId: varchar("google_place_id", { length: 300 }),
     /** Last scan that evaluated at least one page (completed or partial). */
     lastSuccessfulScanAt: timestamp("last_successful_scan_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     notes: text("notes"),
+    /**
+     * Product track (branding). Shown on the report, the PDF and single-dealership
+     * emails; null falls back to A3 styling. The logo is only ever rendered as an
+     * <img> (browsers, mail clients and the PDF worker's Chromium) and is
+     * validated as https on a public host when saved. See dealerships/branding.ts.
+     */
+    logoUrl: varchar("logo_url", { length: 500 }),
+    /** "#RRGGBB". Text on it is chosen automatically (white or black) for contrast. */
+    brandColor: varchar("brand_color", { length: 7 }),
     lastSeoScanId: bigint("last_seo_scan_id", { mode: "number" }),
     lastSeoScanAt: timestamp("last_seo_scan_at", { withTimezone: true }),
     lastNewsScanAt: timestamp("last_news_scan_at", { withTimezone: true }),
@@ -304,6 +326,50 @@ export interface PageDetails {
   twitterCard?: boolean;
   truncated?: boolean;
   clientRedirect?: { type: "meta" | "script"; target: string } | null;
+  /* ── Scanner track: hreflang, vehicle detail pages, NAP (stored in jsonb, no migration needed) ── */
+  /** <link rel="alternate" hreflang> annotations, resolved to absolute URLs (only stored when the page declares any). */
+  hreflang?: Array<{ lang: string; href: string }>;
+  /** Vehicle detail page facts (only stored for pages classified as vehicle_detail). */
+  vehicle?: VehiclePageFacts;
+  /** Dealership name/address/phone facts from schema and visible tel: links (only stored when found). */
+  nap?: NapFacts;
+}
+
+/** What a vehicle detail page says about the vehicle's identity, price and availability. See parser.ts. */
+export interface VehiclePageFacts {
+  /** VIN from schema, a labelled "VIN:" in the text, or the URL. Evidence that this really is a single-vehicle page. */
+  vin: string | null;
+  /** Vehicle/Car/Product structured data is present. */
+  hasVehicleSchema: boolean;
+  /** offers.price (or lowPrice / priceSpecification.price) from that structured data, or a product:price meta tag. */
+  schemaPrice: number | null;
+  /** A dollar amount of $1,000 or more in the main content (navigation, header and footer excluded). */
+  visiblePrice: boolean;
+  /** A price present only in the page's inline JavaScript data (rendered client-side). */
+  scriptPrice: boolean;
+  /** An explicit pricing statement instead of a number: "Call for price", "Unlock our best price"… */
+  priceStatement: boolean;
+  /** offers.availability, last path segment (e.g. "InStock", "SoldOut"). */
+  availability: string | null;
+  /** The main content says the vehicle has been sold / is no longer available. */
+  soldText: boolean;
+}
+
+/** One dealership entity declared in structured data on a page (departments excluded). */
+export interface NapEntity {
+  name: string | null;
+  /** 10 digits for US numbers, otherwise the digits as written. */
+  phone: string | null;
+  /** Display form of the PostalAddress. */
+  address: string | null;
+  /** Comparison key: "<street number>|<zip5>" when both are known, otherwise the normalised street + city. */
+  addressKey: string | null;
+}
+
+export interface NapFacts {
+  entities: NapEntity[];
+  /** tel: links and phone numbers in the header/footer (evidence only: dealers list sales, service and parts numbers). */
+  visiblePhones: string[];
 }
 
 export interface SiteChecksSummary {
@@ -469,6 +535,11 @@ export const scanLinks = pgTable(
     foundOn: jsonb("found_on").$type<string[]>().notNull().default([]),
     occurrences: integer("occurrences").notNull().default(1),
     anchorText: varchar("anchor_text", { length: 300 }),
+    /* ── Scanner track: where a redirecting link ends up (internal_link_redirects check) ── */
+    /** Final URL when the link target redirects (null = no redirect, or not known). */
+    finalUrl: varchar("final_url", { length: 2000 }),
+    /** Number of redirect hops to reach finalUrl. */
+    redirectHops: integer("redirect_hops"),
   },
   (t) => [uniqueIndex("scan_links_scan_url_idx").on(t.scanId, t.url), index("scan_links_scan_broken_idx").on(t.scanId, t.isBroken)],
 );
@@ -911,6 +982,326 @@ export const siteCache = pgTable(
   (t) => [uniqueIndex("site_cache_host_kind_idx").on(t.host, t.kind)],
 );
 
+/* ────────────────────────────── Audit trail (security track) ───────── */
+
+/**
+ * Who changed what, for administrators. Written by `recordAudit()` in
+ * `src/lib/audit.ts`; never holds passwords, tokens, secrets or codes. The
+ * actor's email is a snapshot so a row stays readable after the user is
+ * deleted (the id is then nulled). Kept for `AUDIT_RETENTION_DAYS`.
+ */
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    actorUserId: integer("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: varchar("actor_email", { length: 320 }),
+    action: varchar("action", { length: 80 }).notNull(),
+    targetType: varchar("target_type", { length: 40 }),
+    targetId: varchar("target_id", { length: 64 }),
+    summary: text("summary").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 500 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("audit_logs_created_idx").on(t.createdAt),
+    index("audit_logs_target_idx").on(t.targetType, t.targetId),
+    index("audit_logs_actor_idx").on(t.actorUserId, t.createdAt),
+    index("audit_logs_action_idx").on(t.action, t.createdAt),
+  ],
+);
+
+/* ───────────────── Core Web Vitals snapshots (scanner track) ──────────────── */
+
+export type WebVitalRating = "good" | "needs_improvement" | "poor";
+
+/** CrUX field data (real Chrome users, 75th percentile) returned by PageSpeed Insights when Google has enough traffic. */
+export interface FieldMetrics {
+  /** "url" = data for this exact page; "origin" = Google only had data for the whole site and returned that instead. */
+  scope: "url" | "origin";
+  lcpMs: number | null;
+  lcpCategory: WebVitalRating | null;
+  inpMs: number | null;
+  inpCategory: WebVitalRating | null;
+  cls: number | null;
+  clsCategory: WebVitalRating | null;
+  overall: WebVitalRating | null;
+}
+
+/**
+ * One PageSpeed Insights measurement of one page. Kept per dealership rather
+ * than as scan detail, so the speed trend survives scan detail pruning;
+ * maintenance removes rows older than the history retention period.
+ * Displayed only — never part of the SEO score.
+ */
+export const performanceSnapshots = pgTable(
+  "performance_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** Scan that triggered the measurement (null once retention deletes that scan). */
+    scanId: bigint("scan_id", { mode: "number" }).references(() => seoScans.id, { onDelete: "set null" }),
+    url: varchar("url", { length: 2000 }).notNull(),
+    /** "home", or "vdp" for one vehicle detail page when the scan crawled one. */
+    pageKind: varchar("page_kind", { length: 20 }).notNull().$type<"home" | "vdp">(),
+    strategy: varchar("strategy", { length: 10 }).notNull().default("mobile").$type<"mobile" | "desktop">(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Lighthouse lab metrics. */
+    performance: integer("performance"),
+    lcpMs: integer("lcp_ms"),
+    cls: real("cls"),
+    tbtMs: integer("tbt_ms"),
+    fcpMs: integer("fcp_ms"),
+    field: jsonb("field").$type<FieldMetrics>(),
+    /** Why no metrics were captured (API error, timeout…); null on success. */
+    error: text("error"),
+  },
+  (t) => [index("performance_snapshots_dealership_idx").on(t.dealershipId, t.capturedAt)],
+);
+
+/* ────────────────────────────── Data integrations ──────────────────── */
+/*
+ * Google Search Console, Google listing (Places API (New)) and competitor
+ * homepage comparisons. Informational signals shown beside the SEO score —
+ * never part of it. Code: src/lib/integrations/.
+ */
+
+export type IntegrationKind = "gsc" | "places";
+/** "ok" synced; "error" the last attempt failed (see last_error); "pending" queued but never synced. */
+export type IntegrationStatus = "ok" | "error" | "pending";
+
+/** Sync state per dealership and integration, so the UI can say what happened and why. */
+export const dealershipIntegrations = pgTable(
+  "dealership_integrations",
+  {
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 20 }).$type<IntegrationKind>().notNull(),
+    status: varchar("status", { length: 20 }).$type<IntegrationStatus>().notNull().default("pending"),
+    /** The property / place id the last attempt used; a different value on the dealership makes it due again. */
+    configKey: varchar("config_key", { length: 300 }),
+    lastScheduledAt: timestamp("last_scheduled_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Readable reason for the last failure (never contains credentials). */
+    lastError: text("last_error"),
+    /** Search Console: latest day with stored data (YYYY-MM-DD, Pacific time like Search Console). */
+    dataThrough: date("data_through", { mode: "string" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.dealershipId, t.kind] })],
+);
+
+/** Search Console daily totals (Search Analytics, dimension = date). Days without impressions have no row. */
+export const gscDaily = pgTable(
+  "gsc_daily",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** Property the row came from; rows of a previous property are deleted when it changes. */
+    property: varchar("property", { length: 300 }).notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    clicks: integer("clicks").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    /** 0–1, as returned by Google. */
+    ctr: doublePrecision("ctr").notNull().default(0),
+    /** Average position (1 = top of the results). */
+    position: doublePrecision("position"),
+  },
+  (t) => [uniqueIndex("gsc_daily_dealer_date_idx").on(t.dealershipId, t.date)],
+);
+
+/** Top queries and pages for the latest 28-day window (replaced on every sync). */
+export const gscTopItems = pgTable(
+  "gsc_top_items",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 10 }).$type<"query" | "page">().notNull(),
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    periodEnd: date("period_end", { mode: "string" }).notNull(),
+    key: text("key").notNull(),
+    clicks: integer("clicks").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    ctr: doublePrecision("ctr").notNull().default(0),
+    position: doublePrecision("position"),
+  },
+  (t) => [index("gsc_top_items_dealer_idx").on(t.dealershipId, t.kind, t.periodEnd)],
+);
+
+/** Compact Place Details payload kept with each snapshot (see integrations/places.ts). */
+export interface PlaceSnapshotData {
+  placeId: string;
+  name: string | null;
+  formattedAddress: string | null;
+  websiteUri: string | null;
+  nationalPhoneNumber: string | null;
+  googleMapsUri: string | null;
+  hasOpeningHours: boolean;
+}
+
+/** Weekly Google listing snapshots (Places API (New) Place Details). */
+export const placeSnapshots = pgTable(
+  "place_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    rating: doublePrecision("rating"),
+    reviewCount: integer("review_count"),
+    businessStatus: varchar("business_status", { length: 40 }),
+    data: jsonb("data").$type<PlaceSnapshotData>().notNull(),
+  },
+  (t) => [index("place_snapshots_dealer_idx").on(t.dealershipId, t.capturedAt)],
+);
+
+/** Competitor websites compared with a dealership's homepage (at most 3 per dealership). */
+export const competitors = pgTable(
+  "competitors",
+  {
+    id: serial("id").primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 200 }).notNull(),
+    websiteUrl: varchar("website_url", { length: 500 }).notNull(),
+    /** Normalised host (lowercase, no "www."). */
+    host: varchar("host", { length: 255 }).notNull(),
+    /** Google listing, found by name + website during the audit (when GOOGLE_PLACES_API_KEY is set). */
+    googlePlaceId: varchar("google_place_id", { length: 300 }),
+    lastAuditScheduledAt: timestamp("last_audit_scheduled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("competitors_dealership_idx").on(t.dealershipId), uniqueIndex("competitors_dealer_host_idx").on(t.dealershipId, t.host)],
+);
+
+/** Compact homepage metrics from one competitor audit (see integrations/competitor-metrics.ts). */
+export interface CompetitorMetrics {
+  httpStatus: number | null;
+  finalUrl: string | null;
+  https: boolean | null;
+  titleLength: number | null;
+  descriptionLength: number | null;
+  h1Present: boolean | null;
+  schemaTypes: string[] | null;
+  dealerSchema: boolean | null;
+  pageBytes: number | null;
+  responseMs: number | null;
+  mobileViewport: boolean | null;
+  rating: number | null;
+  reviewCount: number | null;
+  /** Google PageSpeed mobile performance (0–100), only when PAGESPEED_API_KEY is set. */
+  performance: number | null;
+}
+
+/** "ok" homepage read; "blocked" robots.txt or bot protection refused the monitor (never bypassed); "error" unreachable. */
+export type CompetitorSnapshotStatus = "ok" | "blocked" | "error";
+
+export const competitorSnapshots = pgTable(
+  "competitor_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    competitorId: integer("competitor_id")
+      .notNull()
+      .references(() => competitors.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    status: varchar("status", { length: 20 }).$type<CompetitorSnapshotStatus>().notNull(),
+    /** Readable reason when blocked or failed. */
+    error: text("error"),
+    metrics: jsonb("metrics").$type<CompetitorMetrics>().notNull(),
+  },
+  (t) => [index("competitor_snapshots_competitor_idx").on(t.competitorId, t.capturedAt)],
+);
+
+/* ───────────── Product track: monthly history & issue workflow ─────────── */
+
+/** One check's footprint in a monthly snapshot (kept after the scan's detail rows are pruned). */
+export interface MonthlyCheckSummary {
+  checkKey: string;
+  severity: "critical" | "warning" | "info";
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  /** Distinct affected URLs (for link checks: distinct broken links). */
+  affectedPages: number;
+  /** At most 5, sorted. */
+  sampleUrls: string[];
+}
+
+/**
+ * Long-term monthly history. Page/issue detail rows are pruned after the 10
+ * newest scans, and scan rows after `retentionDays`; this keeps one compact
+ * summary per dealership per local month (APP_TIMEZONE) so a 12-month trend and
+ * a month-over-month issue comparison survive both. The latest comparable scan
+ * of the month wins. `scan_id` deliberately has no foreign key: the snapshot
+ * must outlive the scan it was taken from.
+ */
+export const seoMonthlySnapshots = pgTable(
+  "seo_monthly_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    /** "YYYY-MM" in APP_TIMEZONE. */
+    month: varchar("month", { length: 7 }).notNull(),
+    scanId: bigint("scan_id", { mode: "number" }).notNull(),
+    scanCompletedAt: timestamp("scan_completed_at", { withTimezone: true }).notNull(),
+    score: integer("score"),
+    categoryScores: jsonb("category_scores").$type<CategoryScores>(),
+    criticalCount: integer("critical_count").notNull().default(0),
+    warningCount: integer("warning_count").notNull().default(0),
+    infoCount: integer("info_count").notNull().default(0),
+    pagesScanned: integer("pages_scanned").notNull().default(0),
+    checks: jsonb("checks").$type<MonthlyCheckSummary[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("seo_monthly_snapshots_dealer_month_idx").on(t.dealershipId, t.month)],
+);
+
+export const ISSUE_WORKFLOW_STATUSES = ["open", "in_progress", "fixed", "ignored"] as const;
+export const issueStatusEnum = pgEnum("issue_status", ISSUE_WORKFLOW_STATUSES);
+
+/**
+ * Staff workflow state for one issue, keyed by its stable fingerprint so it
+ * carries across scans. Tracking only: the score is computed from what a scan
+ * finds and never reads this table. `verified_at` is set by a later full scan
+ * that evaluated the page and no longer found the issue; `reopened_at` when a
+ * scan still (or again) found an issue that was marked fixed.
+ */
+export const issueStates = pgTable(
+  "issue_states",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    dealershipId: integer("dealership_id")
+      .notNull()
+      .references(() => dealerships.id, { onDelete: "cascade" }),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    checkKey: varchar("check_key", { length: 80 }).notNull(),
+    url: varchar("url", { length: 2000 }).notNull(),
+    status: issueStatusEnum("status").notNull().default("open"),
+    note: text("note"),
+    assignedTo: integer("assigned_to").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    fixedMarkedAt: timestamp("fixed_marked_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("issue_states_dealer_fingerprint_idx").on(t.dealershipId, t.fingerprint), index("issue_states_dealer_status_idx").on(t.dealershipId, t.status)],
+);
+
 /* ────────────────────────────── Types ──────────────────────────────── */
 
 export type User = typeof users.$inferSelect;
@@ -937,3 +1328,14 @@ export type Job = typeof jobs.$inferSelect;
 export type SystemLog = typeof systemLogs.$inferSelect;
 export type CrawlerWorker = typeof crawlerWorkers.$inferSelect;
 export type ScanOutcome = (typeof scanOutcomeEnum.enumValues)[number];
+export type SeoMonthlySnapshot = typeof seoMonthlySnapshots.$inferSelect;
+export type IssueState = typeof issueStates.$inferSelect;
+export type IssueWorkflowStatus = (typeof ISSUE_WORKFLOW_STATUSES)[number];
+export type DealershipIntegration = typeof dealershipIntegrations.$inferSelect;
+export type GscDaily = typeof gscDaily.$inferSelect;
+export type GscTopItem = typeof gscTopItems.$inferSelect;
+export type PlaceSnapshot = typeof placeSnapshots.$inferSelect;
+export type Competitor = typeof competitors.$inferSelect;
+export type CompetitorSnapshot = typeof competitorSnapshots.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type PerformanceSnapshot = typeof performanceSnapshots.$inferSelect;

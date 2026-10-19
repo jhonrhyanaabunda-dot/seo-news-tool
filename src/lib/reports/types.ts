@@ -61,6 +61,24 @@ export interface ReportFindings {
   protectedPages: { total: number; items: Array<{ url: string; resultClass: PageResultClass; reason: string | null }> };
   changes: { scoreDelta: number | null; newIssues: number; resolvedIssues: number } | null;
   performance: { mobileScore: number | null; lcpMs: number | null; cls: number | null } | null;
+  /**
+   * Google Search Console totals for the latest 28 days with data, and the 28
+   * days before (null without that history). Present only when Search Console
+   * is connected and has data. Context only: never part of the SEO score.
+   */
+  searchConsole?: {
+    periodStart: string;
+    periodEnd: string;
+    clicks: number;
+    impressions: number;
+    /** Click-through rate in percent, one decimal. */
+    ctrPct: number;
+    /** Average position, one decimal. */
+    position: number | null;
+    previous: { clicks: number; impressions: number; ctrPct: number; position: number | null } | null;
+  };
+  /** Latest Google listing figures (Places API). Present only when connected. Not part of the SEO score. */
+  googleListing?: { rating: number | null; reviewCount: number | null; capturedOn: string };
   news: {
     periodDays: number;
     newCount: number;

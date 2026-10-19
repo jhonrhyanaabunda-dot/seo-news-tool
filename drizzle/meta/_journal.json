@@ -134,6 +134,13 @@
       "when": 1792371202578,
       "tag": "0018_users_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792412528325,
+      "tag": "0019_stage5_upgrades",
+      "breakpoints": true
     }
   ]
 }

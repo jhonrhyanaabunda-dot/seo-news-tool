@@ -5,6 +5,8 @@ import { seoIssues } from "@/lib/db/schema";
 import { CHECKS_BY_KEY } from "@/lib/seo/checks/config";
 import { REPORT_GROUPS, priorityFor, reportGroupFor } from "@/lib/seo/priority";
 import { compareOpportunities, type Opportunity } from "@/lib/seo/opportunity";
+import { getWorkflowCountsByCheck } from "@/lib/issues/states";
+import { isActionable } from "@/lib/issues/workflow";
 
 /**
  * One definition of "what this dealership should do next", used by the
@@ -33,7 +35,20 @@ import { compareOpportunities, type Opportunity } from "@/lib/seo/opportunity";
  */
 export type { Opportunity };
 
-export async function getOpportunities(scanId: number): Promise<Opportunity[]> {
+/**
+ * Issue workflow (issue_states): an opportunity whose every finding staff have
+ * marked "ignored" is left out of this list, because the list means "what to do
+ * next". Its findings still count everywhere else — the score, the counts and
+ * the report findings never read workflow state. Pass `includeIgnored` to get
+ * the full list with `ignoredFindings` filled in.
+ */
+export async function getOpportunities(scanId: number, opts: { includeIgnored?: boolean } = {}): Promise<Opportunity[]> {
+  const [all, workflow] = await Promise.all([opportunitiesForScan(scanId), getWorkflowCountsByCheck(scanId)]);
+  const withWorkflow = all.map((o) => ({ ...o, workflow: workflow.get(o.checkKey) ?? {}, ignoredFindings: workflow.get(o.checkKey)?.ignored ?? 0 }));
+  return opts.includeIgnored ? withWorkflow : withWorkflow.filter((o) => isActionable(o, o.ignoredFindings));
+}
+
+async function opportunitiesForScan(scanId: number): Promise<Opportunity[]> {
   const rows = await db
     .select({
       checkKey: seoIssues.checkKey,

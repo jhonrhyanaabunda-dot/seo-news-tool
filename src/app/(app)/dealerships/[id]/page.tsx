@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessDealership, isClient, requireDealershipAccess } from "@/lib/auth/tenant";
 import { getClientDashboard } from "@/lib/queries/client-dashboard";
 import { ClientDashboardView } from "@/components/client-dashboard";
+import { SpeedCard } from "@/components/speed-card";
+import { getSpeedData, type SpeedData } from "@/lib/queries/performance";
 import { getOpportunities } from "@/lib/queries/client-opportunities";
 import { OpportunitiesView } from "@/components/opportunities-view";
 import { env } from "@/lib/env";
@@ -49,7 +51,15 @@ import { emailReportAction, generateReportAction } from "@/app/actions/reports";
 import { CategoryBars, ScoreHistoryChart } from "@/components/charts";
 import { SubmitButton } from "@/components/client/submit-button";
 import { ArticleList } from "@/components/article-list";
+import { SearchPerformanceTab } from "@/components/integrations/search-tab";
+import { loadSearchTab, searchTabAvailable } from "@/lib/integrations/queries";
 import { displayUrl, fmtDate, fmtDateTime, fmtDuration, fmtRelative } from "@/components/format";
+// Product track: issue workflow, monthly history, branding.
+import { parseWorkflowFilter } from "@/lib/issues/workflow";
+import { getAssignableUsers, getIssueStates } from "@/lib/issues/states";
+import { IssueStatusBadge, IssueWorkflowEditor, WorkflowScoreNote } from "@/components/issue-workflow";
+import { MonthlyHistory } from "@/components/monthly-history";
+import { BrandHeader } from "@/components/brand-header";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +87,8 @@ const NOTICES: Record<string, { tone: "success" | "info" | "warning"; text: stri
   "report-emailed": { tone: "success", text: "The report was emailed to the dealership's notification recipients and management recipients." },
   "report-email-failed": { tone: "warning", text: "Some report emails could not be delivered. See Admin → System for details." },
   "report-no-recipients": { tone: "warning", text: "No recipients: add notification emails to this dealership or management recipients in Settings." },
+  "monthly-queued-me": { tone: "success", text: "Monthly report queued. It is built and emailed to your own address within a few minutes; Admin → System shows the email log." },
+  "monthly-queued": { tone: "success", text: "Monthly report queued. It is built and emailed to this dealership's recipients and management within a few minutes." },
 };
 
 export default async function DealershipPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
@@ -94,7 +106,10 @@ export default async function DealershipPage({ params, searchParams }: { params:
   // A dealership login gets the client-facing surfaces only; typing a staff tab
   // into the URL falls back to the overview rather than rendering it.
   const CLIENT_TABS = ["overview", "opportunities", "issues", "news", "reports"];
-  const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history"];
+  const STAFF_TABS = [...CLIENT_TABS, "pages", "protected", "history", "search"];
+  // Search performance (Search Console, Google listing, competitors): for a dealership login only once something is connected.
+  const searchTab = !isClient(user) || (await searchTabAvailable(dealer));
+  if (isClient(user) && searchTab) CLIENT_TABS.push("search");
   const allowedTabs = isClient(user) ? CLIENT_TABS : STAFF_TABS;
   const tab = allowedTabs.includes(sp.tab ?? "") ? sp.tab! : "overview";
   const [{ latest, newerBlocked, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
@@ -231,11 +246,12 @@ export default async function DealershipPage({ params, searchParams }: { params:
           { key: "issues", label: isClient(user) ? "Findings" : "SEO issues", href: href({ tab: "issues" }), count: issueCounts ? issueCounts.bySeverity.critical + issueCounts.bySeverity.warning + issueCounts.bySeverity.info : null },
           { key: "pages", label: "Pages", href: href({ tab: "pages" }), count: latest?.pagesScanned ?? null },
           { key: "protected", label: "Protected pages", href: href({ tab: "protected" }), count: latest ? latest.pagesBlocked + latest.pagesNotEvaluated || null : null },
+          { key: "search", label: "Search performance", href: href({ tab: "search" }) },
           { key: "news", label: "News", href: href({ tab: "news" }), count: newsCounts.new || null },
           { key: "reports", label: "Reports", href: href({ tab: "reports" }) },
           { key: "history", label: "Crawl history", href: href({ tab: "history" }) },
           // Crawl diagnostics are A3's working surfaces, not a dealership's.
-        ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports"].includes(t.key))}
+        ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports", ...(searchTab ? ["search"] : [])].includes(t.key))}
       />
 
       {tab === "overview" &&
@@ -247,6 +263,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
             data={(await getClientDashboard(id))!}
             tz={tz}
             showHeader={false}
+            speed={await getSpeedData(id)}
             canScan={dealer.seoEnabled && !active}
             scanAction={
               <form action={scanNowAction}>
@@ -258,7 +275,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
             }
           />
         ) : (
-          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} />
+          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} speed={await getSpeedData(id)} />
         ))}
       {tab === "opportunities" &&
         (latest ? (
@@ -269,12 +286,17 @@ export default async function DealershipPage({ params, searchParams }: { params:
             storedIssueTotal={latest.criticalCount + latest.warningCount}
             tz={tz}
             base={base}
+            ignored={(await getOpportunities(latest.id, { includeIgnored: true })).filter((o) => (o.ignoredFindings ?? 0) >= o.findings)}
+            workflowEditor={user.role === "admin" ? { dealershipId: id, assignees: await getAssignableUsers() } : undefined}
           />
         ) : (
           <NoScanYet />
         ))}
       {tab === "issues" && (latest ? <IssuesTab
             scanId={latest.id}
+            dealershipId={id}
+            canEdit={user.role === "admin"}
+            staff={!isClient(user)}
             sp={sp}
             href={href}
             tz={tz}
@@ -285,6 +307,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
           /> : <NoScanYet />)}
       {tab === "pages" && (latest ? <PagesTab scanId={latest.id} sp={sp} href={href} /> : <NoScanYet />)}
       {tab === "news" && <NewsTab dealerId={id} sp={sp} href={href} tz={tz} counts={newsCounts} newsEnabled={dealer.newsEnabled} />}
+      {tab === "search" && <SearchPerformanceTab dealer={dealer} data={await loadSearchTab(dealer)} isAdmin={user.role === "admin"} isClient={isClient(user)} tz={tz} sync={sp.sync} />}
       {tab === "protected" && (latest ? <ProtectedTab scanId={latest.id} jobStatus={crawlJobStatus(latest)} tz={tz} /> : <NoScanYet />)}
       {tab === "reports" && <ReportsTab dealerId={id} sp={sp} href={href} tz={tz} isAdmin={user.role === "admin"} hasScan={Boolean(latest)} />}
       {tab === "history" && <HistoryTab dealerId={id} sp={sp} href={href} tz={tz} currentSite={siteKey(dealer.websiteUrl)} />}
@@ -374,8 +397,10 @@ async function Overview({
   issueCounts,
   newsCounts,
   href,
+  speed,
 }: {
   latest: Awaited<ReturnType<typeof getLatestScans>>["latest"];
+  speed: SpeedData;
   status: string | null;
   tz: string;
   issueCounts: Awaited<ReturnType<typeof getIssueCounts>> | null;
@@ -580,7 +605,8 @@ async function Overview({
         )}
       </Card>
 
-      <Card title="Performance (Google Lighthouse)" description="Lab data from PageSpeed Insights, mobile. Shown for context; not part of the score because it varies between runs.">
+      {/* Weekly Core Web Vitals snapshots replace the per-scan Lighthouse reading once one exists. */}
+      {speed.home || speed.vdp ? <SpeedCard speed={speed} tz={tz} className="lg:col-span-3" /> : <Card title="Performance (Google Lighthouse)" description="Lab data from PageSpeed Insights, mobile. Shown for context; not part of the score because it varies between runs.">
         {sc?.pagespeed && sc.pagespeed.performance !== null ? (
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <Metric label="Performance" value={`${sc.pagespeed.performance}/100`} />
@@ -591,7 +617,7 @@ async function Overview({
         ) : (
           <p className="text-sm text-slate-500">{sc?.pagespeed?.error ? `Not available: ${sc.pagespeed.error}.` : "Not configured. Add a PAGESPEED_API_KEY to enable Lighthouse metrics."} Server response times are always measured by the crawler.</p>
         )}
-      </Card>
+      </Card>}
 
       {(!blocked || remote) && <Card title={`Passed checks (${passed.length})`} className="lg:col-span-3">
         <ul className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -639,6 +665,9 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
 
 async function IssuesTab({
   scanId,
+  dealershipId,
+  canEdit,
+  staff,
   sp,
   href,
   tz,
@@ -648,6 +677,11 @@ async function IssuesTab({
   storedIssueTotal,
 }: {
   scanId: number;
+  dealershipId: number;
+  /** Admins change workflow status; viewers and dealership logins see it read-only. */
+  canEdit: boolean;
+  /** A3 staff also see assignee and notes. */
+  staff: boolean;
   sp: SP;
   href: (sp: SP) => string;
   tz: string;
@@ -665,12 +699,16 @@ async function IssuesTab({
     category: sp.category,
     pageId: sp.page ? Number(sp.page) : undefined,
     onlyNew: sp.new === "1",
+    workflow: parseWorkflowFilter(sp.wf),
     page,
     pageSize,
   });
   const filtered = sp.check ? rows.filter((r) => r.checkKey === sp.check) : rows;
-  const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1");
-  const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check };
+  const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1" || sp.wf);
+  const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check, wf: sp.wf };
+  const [states, assignees] = await Promise.all([getIssueStates(dealershipId, filtered.map((r) => r.fingerprint)), canEdit ? getAssignableUsers() : Promise.resolve([])]);
+  const assigneeName = new Map(assignees.map((u) => [u.id, u.name]));
+  const backHref = href({ ...keep, p: sp.p });
   const chip = (label: string, next: SP, active: boolean) => (
     <Link href={href({ ...keep, ...next, p: undefined })} aria-current={active ? "true" : undefined} className={cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50")}>
       {label}
@@ -698,6 +736,15 @@ async function IssuesTab({
         {chip("All categories", { category: undefined }, !sp.category)}
         {Object.entries(CATEGORIES).map(([k, v]) => (counts.byCategory[k] ? <span key={k}>{chip(`${v.label} (${counts.byCategory[k]})`, { category: k }, sp.category === k)}</span> : null))}
       </div>
+      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+        {chip("Any status", { wf: undefined }, !sp.wf)}
+        {chip("Open", { wf: "open" }, sp.wf === "open")}
+        {chip("In progress", { wf: "in_progress" }, sp.wf === "in_progress")}
+        {chip("Marked fixed", { wf: "fixed" }, sp.wf === "fixed")}
+        {chip("Came back", { wf: "reopened" }, sp.wf === "reopened")}
+        {chip("Ignored", { wf: "ignored" }, sp.wf === "ignored")}
+      </div>
+      <WorkflowScoreNote className="mb-4 max-w-3xl text-xs text-slate-500" />
       {(sp.page || sp.check) && (
         <Notice tone="info">
           Filtered to {sp.page ? "a single page" : CHECKS_BY_KEY[sp.check!]?.problem ?? sp.check}.{" "}
@@ -727,13 +774,16 @@ async function IssuesTab({
               <th scope="col">Page</th>
               <th scope="col">Recommended action</th>
               <th scope="col">Detected</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((i) => {
               const target = typeof i.details?.target === "string" ? i.details.target : null;
+              const state = states.get(i.fingerprint);
               return (
-                <tr key={i.id}>
+                // Ignored issues are de-emphasised, never hidden: they still count in the score.
+                <tr key={i.id} className={cn(state?.status === "ignored" && "opacity-60")}>
                   <td>
                     <div className="flex flex-col items-start gap-1">
                       <PriorityBadge priority={priorityFor(i.checkKey, i.severity)} />
@@ -761,6 +811,12 @@ async function IssuesTab({
                   </td>
                   <td className="max-w-sm text-slate-600">{i.recommendation}</td>
                   <td className="whitespace-nowrap text-slate-500">{fmtDate(i.firstDetectedAt, tz)}</td>
+                  <td className="min-w-[8rem] align-top">
+                    <IssueStatusBadge state={state} />
+                    {staff && state?.assignedTo && assigneeName.get(state.assignedTo) && <div className="mt-1 text-xs text-slate-500">Assigned: {assigneeName.get(state.assignedTo)}</div>}
+                    {staff && state?.note && <div className="mt-1 max-w-[14rem] break-words text-xs text-slate-500">{state.note}</div>}
+                    {canEdit && <IssueWorkflowEditor dealershipId={dealershipId} fingerprint={i.fingerprint} state={state} assignees={assignees} back={backHref} />}
+                  </td>
                 </tr>
               );
             })}
@@ -990,6 +1046,7 @@ async function ReportsTab({ dealerId, sp, href, tz, isAdmin, hasScan }: { dealer
                 </SubmitButton>
               </form>
             )}
+            <BrandHeader dealership={(await getDealership(dealerId))!} />
             <ReportView findings={selected.findings as ReportFindings} narrative={selected.narrative as ReportNarrative} generator={selected.generator} generatorNote={selected.generatorNote} completedAt={selected.completedAt} tz={tz} />
           </>
         )}
@@ -1080,6 +1137,8 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
       <Card title="SEO score history">
         <ScoreHistoryChart points={points} />
       </Card>
+
+      <MonthlyHistory dealershipId={dealerId} tz={tz} />
 
       {selected && (
         <Card
