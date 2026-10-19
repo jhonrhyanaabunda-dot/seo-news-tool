@@ -21,9 +21,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Known vulnerabilities in what ships to production. Dev-only tooling
-      # (eslint, drizzle-kit) is excluded: its advisories never reach users.
-      - run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

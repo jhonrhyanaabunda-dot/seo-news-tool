@@ -10,7 +10,6 @@ import { revokeAllSessions } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { dealerships, userDealerships, users } from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
-import { recordAudit } from "@/lib/audit";
 import { cleanText } from "@/lib/security/sanitize";
 
 export type UserFormState = { error?: string; ok?: string; tempPassword?: string } | undefined;
@@ -51,9 +50,8 @@ export async function createUserAction(_prev: UserFormState, formData: FormData)
   const [exists] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${parsed.data.email}`).limit(1);
   if (exists) return { error: "A user with this email address already exists." };
   const tempPassword = randomBytes(12).toString("base64url");
-  const [created] = await db.insert(users).values({ ...parsed.data, passwordHash: await hashPassword(tempPassword) }).returning({ id: users.id });
+  await db.insert(users).values({ ...parsed.data, passwordHash: await hashPassword(tempPassword) });
   await logger.info("admin", "User created", { by: admin.email, email: parsed.data.email, role: parsed.data.role });
-  await recordAudit({ actor: admin, action: "user.create", target: { type: "user", id: created?.id }, summary: `Created ${parsed.data.email} as ${parsed.data.role}`, details: { email: parsed.data.email, role: parsed.data.role } });
   revalidatePath("/admin/users");
   return { ok: `Account created for ${parsed.data.email}. Share this temporary password securely; it is shown only once.`, tempPassword };
 }
@@ -66,33 +64,17 @@ export async function updateUserAction(formData: FormData) {
     // Prevent admins locking themselves out.
     return;
   }
-  const [target] = await db.select({ email: users.email, role: users.role }).from(users).where(eq(users.id, id)).limit(1);
-  if (!target) return;
-  let done: unknown = true;
   if (op === "make-admin" || op === "activate") {
     await db.update(users).set(op === "make-admin" ? { role: "admin", updatedAt: new Date() } : { isActive: true, updatedAt: new Date() }).where(eq(users.id, id));
   } else if (op === "make-viewer" || op === "make-client" || op === "deactivate") {
     const change = op === "make-viewer" ? { role: "viewer" as const } : op === "make-client" ? { role: "client" as const } : { isActive: false };
-    done = await keepAnAdmin(id, (tx) => tx.update(users).set({ ...change, updatedAt: new Date() }).where(eq(users.id, id)).returning({ id: users.id }));
+    const done = await keepAnAdmin(id, (tx) => tx.update(users).set({ ...change, updatedAt: new Date() }).where(eq(users.id, id)).returning({ id: users.id }));
     // A demoted or deactivated account must not keep browsing on its old cookie.
     if (done) await revokeAllSessions(id);
   }
   await logger.info("admin", "User updated", { by: admin.email, userId: id, op });
-  const audit = USER_OPS[op];
-  if (audit && done) {
-    await recordAudit({ actor: admin, action: audit.action, target: { type: "user", id }, summary: `${audit.verb} ${target.email}`, details: { op, from: target.role } });
-  }
   revalidatePath("/admin/users");
 }
-
-/** Which audit entry each role/status button writes. */
-const USER_OPS: Record<string, { action: "user.role" | "user.activate" | "user.deactivate"; verb: string }> = {
-  "make-admin": { action: "user.role", verb: "Made administrator:" },
-  "make-viewer": { action: "user.role", verb: "Made viewer:" },
-  "make-client": { action: "user.role", verb: "Made dealership account:" },
-  activate: { action: "user.activate", verb: "Activated" },
-  deactivate: { action: "user.deactivate", verb: "Deactivated" },
-};
 
 export async function resetPasswordAction(_prev: UserFormState, formData: FormData): Promise<UserFormState> {
   const admin = await assertAdmin();
@@ -103,7 +85,6 @@ export async function resetPasswordAction(_prev: UserFormState, formData: FormDa
   await db.update(users).set({ passwordHash: await hashPassword(tempPassword), updatedAt: new Date() }).where(eq(users.id, id));
   await revokeAllSessions(id);
   await logger.info("admin", "Password reset", { by: admin.email, userId: id });
-  await recordAudit({ actor: admin, action: "user.password_reset", target: { type: "user", id }, summary: `Reset the password of ${u.email}` });
   return { ok: `Password reset for ${u.email}.`, tempPassword };
 }
 
@@ -118,7 +99,6 @@ export async function changeOwnPasswordAction(_prev: UserFormState, formData: Fo
   const [u] = await db.select().from(users).where(eq(users.id, me.id)).limit(1);
   if (!u || !(await verifyPassword(current, u.passwordHash))) return { error: "Your current password is incorrect." };
   await db.update(users).set({ passwordHash: await hashPassword(next), updatedAt: new Date() }).where(eq(users.id, me.id));
-  await recordAudit({ actor: me, action: "auth.password_changed", target: { type: "user", id: me.id }, summary: "Changed own password" });
   return { ok: "Your password has been changed." };
 }
 
@@ -145,13 +125,6 @@ export async function editUserAction(_prev: UserFormState, formData: FormData): 
     throw err;
   }
   await logger.info("admin", "User edited", { by: admin.email, userId, ...(u.email !== email ? { from: u.email, to: email } : {}), ...(u.name !== name ? { name } : {}) });
-  await recordAudit({
-    actor: admin,
-    action: "user.edit",
-    target: { type: "user", id: userId },
-    summary: `Edited ${email}`,
-    details: { ...(u.email !== email ? { from: u.email, to: email } : {}), ...(u.name !== name ? { name } : {}) },
-  });
   revalidatePath("/admin/users");
   revalidatePath("/", "layout"); // the sidebar shows the signed-in user's name and email
   return { ok: "Saved." };
@@ -163,10 +136,7 @@ export async function deleteUserAction(formData: FormData) {
   // Admins can't delete themselves, so at least one administrator (the one acting) always remains.
   if (id === admin.id) return;
   const u = await keepAnAdmin(id, async (tx) => (await tx.delete(users).where(eq(users.id, id)).returning({ email: users.email }))[0]); // sessions are removed with the user
-  if (u) {
-    await logger.info("admin", "User deleted", { by: admin.email, userId: id, email: u.email });
-    await recordAudit({ actor: admin, action: "user.delete", target: { type: "user", id }, summary: `Deleted ${u.email}`, details: { email: u.email } });
-  }
+  if (u) await logger.info("admin", "User deleted", { by: admin.email, userId: id, email: u.email });
   revalidatePath("/admin/users");
 }
 
@@ -198,8 +168,6 @@ export async function setUserDealershipsAction(_prev: UserFormState, formData: F
     if (keep.length) await tx.insert(userDealerships).values(keep.map((dealershipId) => ({ userId, dealershipId })));
   });
   await logger.info("admin", "Dealership access changed", { by: admin.email, userId, dealerships: keep.length });
-  await recordAudit({ actor: admin, action: "user.dealership_access", target: { type: "user", id: userId }, summary: `Set dealership access for ${u.email} (${keep.length})`, details: { dealershipIds: keep } });
   revalidatePath("/admin/users");
   return { ok: keep.length ? `Access saved: ${keep.length} dealership${keep.length === 1 ? "" : "s"}.` : "Access saved: no dealerships. This account can sign in but will see nothing." };
 }
-

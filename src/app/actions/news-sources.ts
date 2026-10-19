@@ -6,7 +6,6 @@ import { assertAdmin } from "@/lib/auth/guards";
 import { assertDealershipAccess } from "@/lib/auth/tenant";
 import { getDealership } from "@/lib/queries/dealership";
 import { logger } from "@/lib/logger";
-import { recordAudit } from "@/lib/audit";
 import { addNewsSource, removeNewsSource } from "@/lib/news/sources";
 
 export type NewsSourceState = { error?: string; ok?: boolean } | undefined;
@@ -25,7 +24,6 @@ export async function addNewsSourceAction(_prev: NewsSourceState, formData: Form
   });
   if (error) return { error };
   await logger.info("admin", "News source added", { by: user.email, url: String(formData.get("url") ?? "") }, id);
-  await recordAudit({ actor: user, action: "news_source.add", target: { type: "dealership", id }, summary: `Added news source ${String(formData.get("label") ?? "").slice(0, 200)}`, details: { url: String(formData.get("url") ?? ""), sourceType: String(formData.get("sourceType") ?? "") } });
   revalidatePath(`/admin/dealerships/${id}/edit`);
   return { ok: true };
 }
@@ -41,9 +39,7 @@ export async function removeNewsSourceAction(formData: FormData) {
   const dealership = await getDealership(id);
   if (!dealership) return;
   const removed = await removeNewsSource(sourceId, dealership);
-  if (removed) {
-    await recordAudit({ actor: user, action: "news_source.remove", target: { type: "dealership", id }, summary: `Removed news source #${sourceId}`, details: { sourceId } });
-  } else {
+  if (!removed) {
     await logger.warn("admin", "News source delete did not match the dealership", { by: user.email, sourceId }, id);
   }
   revalidatePath(`/admin/dealerships/${id}/edit`);

@@ -61,8 +61,8 @@ export async function buildFindings(dealer: Dealership): Promise<ReportFindings 
         group: reportGroupFor(r.checkKey),
         priority: priorityFor(r.checkKey, r.severity),
         affectedPages: Number(r.affected),
-        // Link checks record one issue per broken or redirecting link (on the first page it was found), so they count links, not pages.
-        unit: r.checkKey === "broken_internal_link" || r.checkKey === "broken_external_link" || r.checkKey === "internal_link_redirects" ? ("link" as const) : ("page" as const),
+        // Link checks record one issue per broken link (on the first page it was found), so they count links, not pages.
+        unit: r.checkKey === "broken_internal_link" || r.checkKey === "broken_external_link" ? ("link" as const) : ("page" as const),
         sampleUrls: r.urls ?? [],
         example: r.example,
         recommendation: def?.recommendation ?? "",

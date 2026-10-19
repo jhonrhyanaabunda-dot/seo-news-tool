@@ -37,9 +37,7 @@ import { pageSpeedEnabled, runPageSpeed } from "./pagespeed";
 import { detectBlock } from "./block-detect";
 import { remoteAuditAvailable, runRemoteAudit } from "./remote-audit";
 import { evaluateRemoteAudit } from "./checks/remote-evaluate";
-import { evaluateScan, isConfirmedVdp, isOkHtmlPage, urlKey, type EvalPage } from "./checks/evaluate";
-import { queuePerformanceSnapshot } from "./performance-job";
-import { pickPerformanceTargets } from "./web-vitals";
+import { evaluateScan, isOkHtmlPage, urlKey, type EvalPage } from "./checks/evaluate";
 import { nextBlockState } from "./crawl-policy";
 import { computeOutcome } from "./outcome";
 import { computeScore } from "./scoring";
@@ -688,10 +686,6 @@ async function processPageResult(
         twitterCard: parsed.twitterCard,
         truncated: res.truncated,
         clientRedirect: parsed.clientRedirect,
-        // Stored only where they apply, to keep the row compact.
-        ...(parsed.hreflang.length ? { hreflang: parsed.hreflang } : {}),
-        ...(pageType === "vehicle_detail" ? { vehicle: parsed.vehicle } : {}),
-        ...(parsed.nap ? { nap: parsed.nap } : {}),
       },
     })
     .where(eq(scanPages.id, row.id));
@@ -812,21 +806,6 @@ async function linksPhase(scan: SeoScan, dealer: Dealership, state: CrawlState, 
   // Refused internal link checks can be re-checked through the browser session the site already admitted.
   const canRender = planFetch(dealer.renderMode, env().BROWSER_RENDERING) !== "http-only";
   if (!state.linksPrepared) {
-    // Link targets the crawl already requested and saw redirect (including redirects to a page crawled under its
-    // final address) inherit the final result and where they end up — no second request.
-    await db.execute(sql`
-      update ${scanLinks} l set
-        checked = true,
-        http_status = p.http_status,
-        error_code = null,
-        is_broken = (p.http_status in (404, 410) or p.http_status >= 500),
-        final_url = p.final_url,
-        redirect_hops = coalesce(jsonb_array_length(p.details->'redirectChain'), 1)
-      from ${scanPages} p
-      where l.scan_id = ${scan.id} and p.scan_id = ${scan.id}
-        and p.url = l.url and p.redirected and p.final_url is not null and p.http_status is not null and l.checked = false
-        and (p.status = 'fetched' or p.error_code = 'DUPLICATE')
-    `);
     // Targets we already crawled inherit the page's result — no second request.
     await db.execute(sql`
       update ${scanLinks} l set
@@ -847,7 +826,7 @@ async function linksPhase(scan: SeoScan, dealer: Dealership, state: CrawlState, 
     if (reuseHours > 0 && scan.websiteUrl) {
       const reused = (await db.execute(sql`
         with prev as (
-          select distinct on (pl.url) pl.url, pl.http_status, pl.is_broken, pl.error_code, pl.final_url, pl.redirect_hops
+          select distinct on (pl.url) pl.url, pl.http_status, pl.is_broken, pl.error_code
           from ${scanLinks} pl join ${seoScans} ps on ps.id = pl.scan_id
           where ps.dealership_id = ${scan.dealershipId} and ps.id <> ${scan.id} and ps.status = 'completed'
             and ps.completed_at > now() - make_interval(hours => ${reuseHours}::int)
@@ -855,7 +834,7 @@ async function linksPhase(scan: SeoScan, dealer: Dealership, state: CrawlState, 
             and pl.is_internal and pl.checked and pl.error_code is distinct from 'REUSED'
           order by pl.url, ps.completed_at desc
         )
-        update ${scanLinks} l set checked = true, http_status = prev.http_status, error_code = 'REUSED', is_broken = false, final_url = prev.final_url, redirect_hops = prev.redirect_hops
+        update ${scanLinks} l set checked = true, http_status = prev.http_status, error_code = 'REUSED', is_broken = false
         from prev
         where l.scan_id = ${scan.id} and l.url = prev.url and l.is_internal and l.checked = false
           and not prev.is_broken and prev.error_code is null and prev.http_status between 200 and 399
@@ -938,13 +917,7 @@ async function linksPhase(scan: SeoScan, dealer: Dealership, state: CrawlState, 
         }
         await db
           .update(scanLinks)
-          .set({
-            checked: true,
-            httpStatus: res.status,
-            errorCode: refused ? "UNVERIFIABLE" : res.errorCode,
-            isBroken: isBrokenLink(link.isInternal, res.status, res.errorCode),
-            ...(res.redirected && res.finalUrl ? { finalUrl: res.finalUrl.slice(0, 2000), redirectHops: res.redirectChain.length || 1 } : {}),
-          })
+          .set({ checked: true, httpStatus: res.status, errorCode: refused ? "UNVERIFIABLE" : res.errorCode, isBroken: isBrokenLink(link.isInternal, res.status, res.errorCode) })
           .where(eq(scanLinks.id, id));
         if (refused && link.isInternal && canRender) (state.browserLinkQueue ??= []).push(id);
       }),
@@ -1055,15 +1028,6 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
 
   const pages = await db.select().from(scanPages).where(eq(scanPages.scanId, scan.id)).orderBy(asc(scanPages.id));
   const brokenLinks = oneRowPerTarget(await db.select().from(scanLinks).where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isBroken, true))));
-  // Internal links whose target redirects (internal_link_redirects); evaluateScan decides which redirects matter.
-  const redirectLinks = oneRowPerTarget(
-    await db
-      .select()
-      .from(scanLinks)
-      .where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isInternal, true), eq(scanLinks.isBroken, false), sql`${scanLinks.finalUrl} is not null`))
-      .orderBy(desc(scanLinks.occurrences), asc(scanLinks.url))
-      .limit(1000),
-  );
   const [linkStats] = await db
     .select({
       checked: sql<number>`count(*) filter (where ${scanLinks.checked} and ${scanLinks.errorCode} is distinct from 'UNVERIFIABLE' and ${scanLinks.errorCode} is distinct from 'TIMEOUT')::int`,
@@ -1123,7 +1087,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   if (remote?.performance) pagespeed = remote.performance;
   const evaluation = remote ? evaluateRemoteAudit(remote) : evaluateScan(
     crawlBlocked ? [] : evalPages,
-    [...brokenLinks, ...redirectLinks].map((l) => ({ ...l, foundOn: l.foundOn ?? [] })),
+    brokenLinks.map((l) => ({ ...l, foundOn: l.foundOn ?? [] })),
     {
       baseUrl: state.baseUrl,
       siteAvailable,
@@ -1363,21 +1327,6 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
     newIssues: diff.added.length,
     resolved: change.resolvedCount,
   });
-
-  // Core Web Vitals (not scored): a separate low-priority job, at most weekly per dealership. Blocked sites get
-  // Google's limited homepage check instead (remote audit), so only directly crawled sites are measured here.
-  if (siteAvailable && !crawlBlocked) {
-    try {
-      const targets = pickPerformanceTargets(
-        pages.map((p) => ({ id: p.id, url: p.url, finalUrl: p.finalUrl, pageType: p.pageType, ok: isOkHtmlPage(p as EvalPage), confirmedVdp: isConfirmedVdp(p as EvalPage) })),
-      );
-      if (await queuePerformanceSnapshot({ dealershipId: dealer.id, scanId: scan.id, targets })) {
-        await logScanEvent(scan.id, "info", `Core Web Vitals measurement queued for ${targets.length} page(s) (Google PageSpeed Insights; shown for context, not scored).`);
-      }
-    } catch (err) {
-      await logger.warn("scan", "Could not queue the Core Web Vitals measurement", { scanId: scan.id, err }, dealer.id);
-    }
-  }
 
   try {
     await createScanAlerts({

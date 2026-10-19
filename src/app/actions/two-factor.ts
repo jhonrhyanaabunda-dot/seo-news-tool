@@ -15,7 +15,6 @@ import { users } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security/rate-limit";
-import { recordAudit } from "@/lib/audit";
 
 export type TwoFactorState = { error?: string; ok?: string; codes?: string[] } | undefined;
 
@@ -87,7 +86,6 @@ export async function confirmTwoFactorAction(_prev: TwoFactorState, formData: Fo
   // The setup cookie is left to expire (10 minutes): changing a cookie in a server action re-renders the
   // page, which would also hide the recovery codes. Once 2FA is on the page ignores it.
   await logger.warn("auth", "Two-factor login turned on", { by: me.email, userId: me.id });
-  await recordAudit({ actor: me, action: "mfa.enabled", target: { type: "user", id: me.id }, summary: "Turned on two-factor login" });
   // No revalidatePath here: refreshing /account would swap the setup form (which holds the
   // one-time recovery codes in its state) for the "On" view before the user could save them.
   return { ok: "Two-factor login is on.", codes };
@@ -109,7 +107,6 @@ export async function disableTwoFactorAction(_prev: TwoFactorState, formData: Fo
   // The setup cookie from turning it on may still be alive; without this the page would offer that old QR code.
   (await cookies()).delete({ name: TOTP_SETUP_COOKIE, path: "/account" });
   await logger.warn("auth", "Two-factor login turned off", { by: me.email, userId: me.id });
-  await recordAudit({ actor: me, action: "mfa.disabled", target: { type: "user", id: me.id }, summary: "Turned off two-factor login" });
   revalidatePath("/account");
   return { ok: "Two-factor login is off." };
 }
@@ -124,7 +121,6 @@ export async function regenerateRecoveryCodesAction(_prev: TwoFactorState, formD
   const codes = generateRecoveryCodes();
   await db.update(users).set({ totpLastStep: r.step, totpRecoveryHashes: codes.map((c) => hashRecoveryCode(c, key())), updatedAt: new Date() }).where(eq(users.id, me.id));
   await logger.warn("auth", "Two-factor recovery codes regenerated", { by: me.email, userId: me.id });
-  await recordAudit({ actor: me, action: "mfa.recovery_regenerated", target: { type: "user", id: me.id }, summary: "Generated new recovery codes" });
   // Not revalidated, for the same reason as confirmTwoFactorAction.
   return { ok: "New recovery codes. The old ones no longer work.", codes };
 }
@@ -136,6 +132,5 @@ export async function adminResetTwoFactorAction(formData: FormData) {
   if (id === admin.id) redirect("/account#two-factor");
   await db.update(users).set({ totpSecretEnc: null, totpEnabledAt: null, totpLastStep: null, totpRecoveryHashes: null, updatedAt: new Date() }).where(eq(users.id, id));
   await logger.warn("auth", "Two-factor login reset by an administrator", { by: admin.email, userId: id });
-  await recordAudit({ actor: admin, action: "mfa.reset_by_admin", target: { type: "user", id }, summary: `Reset two-factor login for user #${id}` });
   revalidatePath("/admin/users");
 }

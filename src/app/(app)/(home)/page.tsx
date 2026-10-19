@@ -6,7 +6,6 @@ import { requireUser } from "@/lib/auth/guards";
 import { accessibleDealershipIds, isClient } from "@/lib/auth/tenant";
 import { getClientDashboard } from "@/lib/queries/client-dashboard";
 import { ClientDashboardView } from "@/components/client-dashboard";
-import { getSpeedData } from "@/lib/queries/performance";
 import { scanNowAction } from "@/app/actions/dealerships";
 import { SubmitButton } from "@/components/client/submit-button";
 import { env } from "@/lib/env";
@@ -177,7 +176,6 @@ async function ClientLanding({ allowed, tz }: { allowed: number[]; tz: string })
       <ClientDashboardView
         data={data}
         tz={tz}
-        speed={await getSpeedData(data.dealership.id)}
         canScan={data.dealership.seoEnabled && !data.activeScan}
         scanAction={
           <form action={scanNowAction}>

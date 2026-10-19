@@ -10,9 +10,8 @@ import { logger } from "@/lib/logger";
 import { checkRateLimit, clientIp } from "@/lib/security/rate-limit";
 import { verifyPassword } from "./password";
 import { safeNextPath } from "./safe-next";
-import { createSession, destroySession, getCurrentUser } from "./session";
+import { createSession, destroySession } from "./session";
 import { env } from "@/lib/env";
-import { recordAudit } from "@/lib/audit";
 import { SECOND_FACTOR_COOKIE, SECOND_FACTOR_TTL_MS, consumeRecoveryCode, decryptTotpSecret, readTicket, signTicket, verifyTotp } from "./totp";
 
 const loginSchema = z.object({
@@ -54,7 +53,6 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   // Always run a compare to keep timing similar for unknown users.
   const ok = user ? await verifyPassword(password, user.passwordHash) : await verifyPassword(password, "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalid");
   if (!user || !ok || !user.isActive) {
-    await recordAudit({ actor: user ? { id: user.id, email: user.email } : null, action: "auth.sign_in_failed", target: { type: "user", id: user?.id }, summary: `Sign-in failed for ${email}`, details: { email, reason: !user ? "unknown_email" : !ok ? "wrong_password" : "inactive" } });
     return { error: "Incorrect email or password.", email: typedEmail };
   }
 
@@ -68,7 +66,6 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
 
   await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember });
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
-  await recordAudit({ actor: { id: user.id, email: user.email }, action: "auth.sign_in", target: { type: "user", id: user.id }, summary: "Signed in" });
 
   redirect(safeNextPath(parsed.data.next));
 }
@@ -103,23 +100,18 @@ export async function verifySecondFactorAction(_prev: VerifyState, formData: For
     const left = consumeRecoveryCode(code, user.totpRecoveryHashes ?? [], env().AUTH_SECRET);
     if (!left) {
       await logger.warn("auth", "Two-factor code rejected", { ip, userId: user.id });
-      await recordAudit({ actor: { id: user.id, email: user.email }, action: "auth.mfa_failed", target: { type: "user", id: user.id }, summary: "Two-factor code rejected" });
       return { error: "That code is not right. Check the app and try the current code." };
     }
     await db.update(users).set({ totpRecoveryHashes: left, lastLoginAt: new Date() }).where(eq(users.id, user.id));
     await logger.warn("auth", "Signed in with a recovery code", { userId: user.id, recoveryCodesLeft: left.length });
-    await recordAudit({ actor: { id: user.id, email: user.email }, action: "auth.recovery_code_used", target: { type: "user", id: user.id }, summary: "Signed in with a recovery code", details: { recoveryCodesLeft: left.length } });
   }
 
   jar.delete(SECOND_FACTOR_COOKIE);
   await createSession(user.id, { userAgent: h.get("user-agent"), ip, remember: ticket.remember });
-  await recordAudit({ actor: { id: user.id, email: user.email }, action: "auth.sign_in", target: { type: "user", id: user.id }, summary: "Signed in with two-factor" });
   redirect(safeNextPath(ticket.next));
 }
 
 export async function logoutAction() {
-  const user = await getCurrentUser();
-  if (user) await recordAudit({ actor: user, action: "auth.sign_out", target: { type: "user", id: user.id }, summary: "Signed out" });
   await destroySession();
   redirect("/login");
 }

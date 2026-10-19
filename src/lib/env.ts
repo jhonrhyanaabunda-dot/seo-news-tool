@@ -96,11 +96,6 @@ const schema = z.object({
   AI_REPORTS_MONTHLY_LIMIT: z.coerce.number().int().min(0).max(100000).default(300),
 
   PAGESPEED_API_KEY: z.string().optional(),
-  /**
-   * Core Web Vitals snapshots (homepage + one vehicle page, mobile) after a completed scan,
-   * at most once per this many days per dealership. Needs PAGESPEED_API_KEY. 0 = off. Not scored.
-   */
-  PERFORMANCE_SNAPSHOT_DAYS: z.coerce.number().int().min(0).max(90).default(7),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
 
   /**

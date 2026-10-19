@@ -3,7 +3,7 @@
 A production web application that automatically monitors A3 dealership websites for SEO problems, tracks dealership and automotive news, keeps history, detects meaningful changes, and emails summaries and critical alerts. It is designed to be deployed on **Vercel** with a managed **PostgreSQL** database, so no computer needs to stay on.
 
 - **Dealership management** — add/edit/remove dealerships (name, website, brand, dealer group, location, contacts, SEO/news toggles, schedule override). New dealerships are scanned automatically; no code changes.
-- **SEO monitoring** — polite, robots.txt-respecting crawler that checks 46 rules: HTTP status, HTTPS, redirect chains, links to redirecting URLs, hreflang, vehicle detail pages (price, vehicle schema, sold vehicles still indexed), name/address/phone consistency, titles, meta descriptions, H1/H2, canonicals, robots.txt, XML sitemaps, indexability, internal/external/broken links, image alt text, duplicate titles/descriptions, structured data, Open Graph, key dealership pages, response time, HTML weight, render-blocking scripts, mixed content, client-side redirects.
+- **SEO monitoring** — polite, robots.txt-respecting crawler that checks 39 rules: HTTP status, HTTPS, titles, meta descriptions, H1/H2, canonicals, robots.txt, XML sitemaps, indexability, internal/external/broken links, image alt text, duplicate titles/descriptions, structured data, Open Graph, key dealership pages, response time, HTML weight, render-blocking scripts, mixed content, client-side redirects.
 - **Deterministic scoring** — a rule-based 0–100 score across 7 categories, configurable in one file. No AI is used for scoring; identical input produces an identical score.
 - **News monitoring** — a source hierarchy: the dealership's own news feed, manufacturer newsroom feeds, publisher feeds, then Google News RSS / Bing News RSS / optional NewsAPI & GNews, then news pages the crawler already read on the dealership site. De-duplicated by URL, headline and story (the most authoritative copy wins); reviewers mark articles Relevant / Not relevant / Reviewed.
 - **Protected pages, handled gracefully** — Cloudflare challenges, 403s and 429s are classified per URL (PROTECTED / ACCESS_DENIED / RATE_LIMITED), shown as "Protected / Unable to analyze", and never counted as SEO problems. A scan with some protected pages is **PARTIAL**, not failed.
@@ -11,7 +11,7 @@ A production web application that automatically monitors A3 dealership websites 
 - **AI-assisted SEO reports** — executive summary and prioritised actions written by Claude from stored crawler findings only; anything not matching the findings is discarded. Cached by input hash, capped per month (default 300), with a deterministic fallback.
 - **U.S. crawler workers & crawl-job API** — the dashboard stays on Vercel; crawling runs on a U.S. container worker (Fly.io, Render, Railway, AWS…) that pulls jobs from Postgres. `POST /api/crawl-jobs` queues work machine-to-machine.
 - **Change detection & email** — daily/weekly digests only when something meaningful changed, plus immediate alerts for critical problems. Duplicate-proof.
-- **Security** — authentication with roles, optional two-factor sign-in (authenticator app, can be required for admins), an admin audit log, an enforced Content Security Policy, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint, Dependabot and `npm audit` in CI.
+- **Security** — authentication with roles, protected admin routes, server-side validation, rate limiting, SSRF protection, secure cron endpoint.
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the production architecture, the Vercel feasibility analysis, the database schema and capacity figures.
 
@@ -214,22 +214,6 @@ All rules, weights and thresholds are in **`src/lib/seo/checks/config.ts`**:
 
 Score = weighted mean of category scores; category score = `100 × (1 − deducted / applicable points)`. Rules with no applicable pages are excluded. After editing, run `npm test` (includes determinism tests). New scans use the new rules; historical scores are unchanged.
 
-**Scanner checks added in October 2026** (46 checks in total). Points are deliberately modest so existing scores move little; a site failing every one of them loses about 8–9 points, a typical site 0–3.
-
-| Check | Category · severity · points | Priority | Flags when |
-|---|---|---|---|
-| `redirect_chain` | Technical · warning · 3 | Medium | A crawled page (not the homepage, whose start URL is the admin's entry) was reached through 2+ redirects. |
-| `internal_link_redirects` | Links · info · 2 | Low | An internal link points at an old path that now redirects, or at `http://` on an HTTPS site. Trailing-slash, `www.` and letter-case normalisation, sign-in walls, query-only changes, off-site targets and refused/unverified checks are ignored. |
-| `hreflang_invalid` | Metadata · warning · 3 | Medium | A page that declares hreflang uses an invalid code (syntax-checked; `en_US`, `en-UK`, country-as-language), omits itself, has 2+ languages but no `x-default`, maps one code to two URLs, or a crawled alternate does not link back. Pages without hreflang are not applicable. |
-| `vdp_price_missing` | Content · warning · 2 | Medium | A confirmed vehicle detail page (VDP URL plus a VIN or vehicle schema) has no price in its main content, its structured data, `product:price` meta or inline JavaScript data, and no explicit statement such as "Call for price" or "Unlock our best price" (those pass: they are often a manufacturer pricing rule). Sold vehicles are exempt. |
-| `vdp_schema_missing` | Structured data · warning · 4 | Medium | A confirmed VDP has no Vehicle/Car/Product structured data. VDPs are excluded from `schema_missing`, so a page is never penalised twice. |
-| `vdp_sold_indexed` | Crawlability · warning · 3 | Medium | A confirmed VDP marked `SoldOut`/`Discontinued` in schema, or saying "this vehicle has been sold / is no longer available" in its main content, returns 200, is not noindex and is not canonicalised elsewhere. |
-| `nap_inconsistent` | Structured data · warning · 3 (site) | Medium | The same dealership (by name) is given different phone numbers or addresses in top-level structured data on different pages. Departments, other rooftops, unnamed entities and visible numbers (sales/service/parts, call tracking) are never compared. |
-
-Navigation, header and footer text is excluded when looking for prices and sold notices, so mega-menu links ("Cars under $15,000") and disclaimers cannot trigger or mask a finding.
-
-**Core Web Vitals (not scored).** With `PAGESPEED_API_KEY` set, a completed, directly crawled scan queues a low-priority `performance_snapshot` job that measures the homepage and one vehicle detail page (mobile) through PageSpeed Insights: Lighthouse lab metrics plus Chrome field data (LCP, INP, CLS p75) when Google has it. At most one snapshot per dealership per `PERFORMANCE_SNAPSHOT_DAYS` (default 7, 0 = off), decided from stored timestamps; a failed attempt waits 24 h. Results live in `performance_snapshots` (kept for the history retention period, independent of scan detail pruning) and appear in the **Speed** card on the dealership overview, rated with Google's thresholds (LCP 2.5 s / 4 s, INP 200 / 500 ms, CLS 0.1 / 0.25).
-
 Status bands: **85–100 Good**, **65–84 Needs improvement**, **below 65 Poor**. A scan where the site was down or the scanner was blocked shows "not scored" rather than a misleading number.
 
 ## 9. News monitoring
@@ -364,15 +348,6 @@ See **`.env.example`** for the full, commented list. Required: `DATABASE_URL`, `
 * *Emails not arriving* → Settings → Send test email; check the System email log for the provider's error; verify the sending domain in Resend.
 * Storage is bounded by daily maintenance: page-level details for the 10 most recent scans per dealership, and score history, reports and news for `retentionDays` (Settings).
 * Logs: structured JSON in Vercel's function logs. Warnings and errors are also stored in `system_logs`.
-
-### Security: two-factor sign-in, audit log, CSP
-
-* **Two-factor sign-in (TOTP).** Anyone can turn it on under **Account → Two-factor sign-in**: scan the QR code (or type the key) into an authenticator app, confirm with a code, and save the ten one-time recovery codes shown once. Sign-in then asks for a code after the password; no session exists until the code is accepted (a signed, five-minute pending cookie bridges the two steps). Codes are rate-limited, each code works once, and a recovery code can stand in for a lost phone. Secrets are encrypted at rest (AES-256-GCM; key from `MFA_ENCRYPTION_KEY`, or derived from `AUTH_SECRET`), recovery codes are stored hashed. A password reset never switches two-factor off.
-* **Requiring it for admins.** **Settings → Sign-in security → Require two-factor for admins** (off by default). While on, an administrator without two-factor is sent to Account after signing in and is refused every admin page and action until enrolled. Set it up on your own account first — the setting refuses to turn on otherwise.
-* **Lost phone and recovery codes.** Another administrator can use **Users → Reset 2FA**; the person then signs in with their password and enrols again. If the only administrator is locked out, run `npm run user:create -- --email … --name "…" --reset-2fa` against the production database (this also sets a new password). Keep `MFA_ENCRYPTION_KEY` (or `AUTH_SECRET` when it is unset) stable: changing it makes every enrolled authenticator unreadable, and everyone has to be reset.
-* **Audit log** (**Admin → Audit log**, also linked from System). Every administrative change — users, roles, passwords, two-factor, dealerships, keywords, news sources, SEO feeds, settings, scans, reports — plus sign-ins, failed sign-ins and sign-outs, with who, when, IP and browser. Filter by action or user. Never contains passwords, tokens, secrets or codes. Kept 365 days.
-* **Content Security Policy** is enforced (`src/lib/security/csp.ts`, sent by `src/proxy.ts`): same-origin scripts, styles, fonts and connections; images also from any `https:` URL; no framing. Adding a third-party script, font or API called from the browser means adding its origin there. Vercel preview deployments additionally allow the Vercel Toolbar.
-* **Dependencies:** Dependabot (`.github/dependabot.yml`) opens grouped minor/patch PRs weekly and GitHub Actions updates monthly; CI fails on high or critical advisories in production dependencies (`npm audit --omit=dev`).
 
 ## 14. Testing
 

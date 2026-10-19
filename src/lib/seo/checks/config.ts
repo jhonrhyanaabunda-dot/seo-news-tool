@@ -81,8 +81,6 @@ export const THRESHOLDS = {
   thinContentWords: 120,
   h2RequiredAboveWords: 350,
   lowInternalLinks: 3,
-  /** Redirect hops at which reaching a crawled page counts as a redirect chain. */
-  redirectChainHops: 2,
   /** Score change (points) that counts as "significant" for alerts/digests. */
   significantScoreDelta: 8,
   /** Max issue rows stored per check per scan (keeps storage bounded). */
@@ -112,12 +110,6 @@ export function isUnverifiableHost(hostname: string): boolean {
 export const THIN_CONTENT_PAGE_TYPES = ["home", "service", "parts", "finance", "about", "specials"];
 
 export const DEALER_SCHEMA_TYPES = ["AutoDealer", "AutomotiveBusiness", "LocalBusiness", "Organization", "Store", "CarDealer", "AutoRepair"];
-
-/** Structured-data types that describe a single vehicle for sale on a vehicle detail page (VDP). */
-export const VEHICLE_SCHEMA_TYPES = ["Vehicle", "Car", "Motorcycle", "MotorizedBicycle", "BusOrCoach", "Product", "IndividualProduct"];
-
-/** schema.org availability values that mean the vehicle can no longer be bought. */
-export const SOLD_AVAILABILITY = ["SoldOut", "Discontinued"];
 
 export const CHECKS: CheckDef[] = [
   /* ── Technical ─────────────────────────────────────────────────────── */
@@ -231,17 +223,6 @@ export const CHECKS: CheckDef[] = [
     points: 3,
     recommendation: "Add defer/async to non-critical scripts or move them to the end of the body to improve loading performance.",
   },
-  {
-    key: "redirect_chain",
-    category: "technical",
-    label: "No redirect chains",
-    problem: "Pages reached through redirect chains",
-    description: `Pages are reached in at most one redirect, not a chain of ${THRESHOLDS.redirectChainHops} or more.`,
-    severity: "warning",
-    scope: "page",
-    points: 3,
-    recommendation: "Point the old URL straight at the final page with a single 301 redirect, and update links and sitemap entries to the final URL. Each extra hop slows visitors down and wastes search-engine crawl budget.",
-  },
 
   /* ── Metadata ──────────────────────────────────────────────────────── */
   {
@@ -343,17 +324,6 @@ export const CHECKS: CheckDef[] = [
     points: 3,
     recommendation: "Add Open Graph meta tags (og:title, og:description, og:image, og:url) so shared links render correctly on social platforms.",
   },
-  {
-    key: "hreflang_invalid",
-    category: "metadata",
-    label: "hreflang annotations valid",
-    problem: "Invalid hreflang annotations",
-    description: "Pages that declare language alternates (hreflang) use valid language/region codes, list themselves, include x-default and are confirmed by return links.",
-    severity: "warning",
-    scope: "page",
-    points: 3,
-    recommendation: 'Fix the hreflang tags: use ISO codes such as "en-US" or "es-US" (not "en_US" or "en-UK"), include a tag pointing to the page itself, add an "x-default" alternate, and make every alternate page link back. Search engines ignore hreflang sets with these errors.',
-  },
 
   /* ── Content ───────────────────────────────────────────────────────── */
   {
@@ -400,17 +370,6 @@ export const CHECKS: CheckDef[] = [
     points: 4,
     recommendation: "Add helpful, unique content (department details, FAQs, local information) so the page provides value beyond navigation.",
   },
-  {
-    key: "vdp_price_missing",
-    category: "content",
-    label: "Vehicle pages show a price",
-    problem: "Vehicle pages without a price",
-    description: 'Vehicle detail pages show a price, publish one in their structured data (offers.price), or state how to get one ("Call for price").',
-    severity: "warning",
-    scope: "page",
-    points: 2,
-    recommendation: 'Show the vehicle\'s price on the page and in its Vehicle/Offer structured data. If the price cannot be advertised, say so explicitly ("Call for price", "Unlock our best price") so shoppers and Google vehicle listings are not left guessing.',
-  },
 
   /* ── Links ─────────────────────────────────────────────────────────── */
   {
@@ -434,17 +393,6 @@ export const CHECKS: CheckDef[] = [
     scope: "page",
     points: 3,
     recommendation: "Update the link to a working URL or remove it.",
-  },
-  {
-    key: "internal_link_redirects",
-    category: "links",
-    label: "Internal links point to final URLs",
-    problem: "Internal links to redirecting URLs",
-    description: "Internal links point directly at the final URL rather than at an old or insecure (http://) address that redirects.",
-    severity: "info",
-    scope: "page",
-    points: 2,
-    recommendation: "Update the link to the final URL shown, so visitors and search engines reach the page without a redirect. Links to moved pages usually come from old menus, footers or blog posts.",
   },
   {
     key: "low_internal_links",
@@ -515,28 +463,6 @@ export const CHECKS: CheckDef[] = [
     scope: "site",
     points: 4,
     recommendation: "Add AutoDealer (or AutomotiveBusiness/LocalBusiness) JSON-LD on the homepage with name, address, phone, opening hours and sameAs links.",
-  },
-  {
-    key: "vdp_schema_missing",
-    category: "structured_data",
-    label: "Vehicle schema on vehicle pages",
-    problem: "Vehicle pages without vehicle schema",
-    description: "Vehicle detail pages declare Vehicle, Car or Product structured data.",
-    severity: "warning",
-    scope: "page",
-    points: 4,
-    recommendation: "Add Vehicle (or Car) JSON-LD to every vehicle detail page with VIN, make, model, year, mileage, condition, image and an Offer (price, priceCurrency, availability). This is what Google uses for vehicle listings and rich results.",
-  },
-  {
-    key: "nap_inconsistent",
-    category: "structured_data",
-    label: "Consistent dealership name, address and phone",
-    problem: "Inconsistent dealership address or phone",
-    description: "The dealership's structured data gives the same address and main phone number on every page.",
-    severity: "warning",
-    scope: "site",
-    points: 3,
-    recommendation: "Use one address and one main phone number for the dealership in the structured data on every page, matching the Google Business Profile. Department numbers (service, parts) belong in their own department entries.",
   },
 
   /* ── Crawlability ──────────────────────────────────────────────────── */
@@ -616,17 +542,6 @@ export const CHECKS: CheckDef[] = [
     scope: "page",
     points: 1,
     recommendation: "Confirm the noindex directive is intentional for this page.",
-  },
-  {
-    key: "vdp_sold_indexed",
-    category: "crawlability",
-    label: "Sold vehicles not indexable",
-    problem: "Sold vehicles still indexable",
-    description: "Vehicle pages that say the vehicle is sold or no longer available are removed, redirected or marked noindex.",
-    severity: "warning",
-    scope: "page",
-    points: 3,
-    recommendation: "When a vehicle is sold, return 410/404, 301-redirect the page to the matching model or inventory page, or mark it noindex, and remove it from the sitemap. Sold vehicles left in search results frustrate shoppers.",
   },
   {
     key: "important_page_missing",
