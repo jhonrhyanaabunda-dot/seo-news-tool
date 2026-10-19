@@ -23,6 +23,8 @@ export const settingsSchema = z.object({
   /** 0 = Sunday … 6 = Saturday */
   weeklyDigestWeekday: z.coerce.number().int().min(0).max(6).default(1),
   weeklyDigestHour: z.coerce.number().int().min(0).max(23).default(7),
+  /** Monthly SEO report emailed on the 1st to each dealership's recipients. Off until switched on: it emails clients. */
+  monthlyReportsEnabled: z.boolean().default(false),
   sendDigestWhenNoChanges: z.boolean().default(false),
   instantAlertsEnabled: z.boolean().default(true),
   /** Receive digests/alerts for every dealership (QA leads, management). */

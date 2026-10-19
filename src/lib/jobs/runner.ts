@@ -11,7 +11,7 @@ import { runIndustryNewsFetch } from "@/lib/news/seo-industry";
 import { sendAlertEmail, sendDigests } from "@/lib/email/reports";
 import { runMaintenance } from "./maintenance";
 import { sendPasswordResetLink } from "@/lib/auth/password-reset";
-import { markReportFailed, runReportJob } from "@/lib/reports/service";
+import { emailMonthlyReport, markReportFailed, runReportJob } from "@/lib/reports/service";
 import { claimNextJob, completeJob, continueJob, failJobAttempt, recoverStaleJobs, type ClaimFilter, type JobType } from "./queue";
 import { scheduleDueWork } from "./scheduler";
 import { claimPeriod, releasePeriod } from "@/lib/settings";
@@ -215,7 +215,9 @@ async function execute(job: Job, deadline: number, crawler: { region: string; id
           return "continued";
         }
         const r = await runReportJob(Number(job.payload.reportId));
-        await completeJob(job.id, { reportId: Number(job.payload.reportId), ...r });
+        // A monthly report is emailed once generated; a failed send throws, so the job retries the rest.
+        const emailed = job.payload.monthly && r.status === "completed" ? await emailMonthlyReport(Number(job.payload.reportId), String(job.payload.monthly)) : null;
+        await completeJob(job.id, { reportId: Number(job.payload.reportId), ...r, ...(emailed ? { emailed } : {}) });
         return "completed";
       }
       default:

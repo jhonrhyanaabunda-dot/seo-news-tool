@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships } from "@/lib/db/schema";
 import { env } from "@/lib/env";
@@ -10,6 +10,8 @@ import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
 import { blockedBackoffHours, consecutiveBlocked, CRAWL_POLICY, needsBlockedRecheck } from "@/lib/seo/crawl-policy";
 import { createScanAndJob, logScanEvent } from "@/lib/seo/scans";
 import { enqueueJob } from "./queue";
+import { isMonthlySendDay, reportedMonth } from "@/lib/reports/monthly";
+import { requestMonthlyReport } from "@/lib/reports/service";
 
 const MAX_SCANS_SCHEDULED_PER_TICK = 100;
 const MAX_NEWS_SCHEDULED_PER_TICK = 200;
@@ -27,7 +29,7 @@ const REGION_FALLBACK_MINUTES = 30;
  */
 export async function scheduleDueWork(now = new Date()) {
   const s = await getSettings();
-  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>> };
+  const out = { seoQueued: 0, seoBackedOff: 0, newsQueued: 0, rerouted: 0, digests: [] as string[], monthlyReports: 0, maintenance: false, paused: s.schedulerPaused, crawlerAlert: null as Awaited<ReturnType<typeof checkCrawlerAvailability>> };
   // Runs even while scheduling is paused: scans that are already queued can still be stranded.
   try {
     out.crawlerAlert = await checkCrawlerAvailability(now);
@@ -147,6 +149,17 @@ export async function scheduleDueWork(now = new Date()) {
   if (s.weeklyDigestEnabled && local.weekday === s.weeklyDigestWeekday && local.hour >= s.weeklyDigestHour && (await claimPeriod("digest:weekly", local.date))) {
     await enqueueJob({ type: "digest", payload: { kind: "weekly", periodKey: local.date }, dedupeKey: `digest:weekly:${local.date}`, priority: 30, maxAttempts: 5 });
     out.digests.push(`weekly:${local.date}`);
+  }
+  // Monthly SEO report: on the 1st, each active, scanned dealership's report for the month just ended.
+  if (s.monthlyReportsEnabled && isMonthlySendDay(local.date) && local.hour >= s.dailyDigestHour) {
+    const month = reportedMonth(local.date);
+    if (await claimPeriod("monthly-report", month.key)) {
+      const due = await db
+        .select({ id: dealerships.id })
+        .from(dealerships)
+        .where(and(eq(dealerships.isActive, true), eq(dealerships.seoEnabled, true), sql`${dealerships.lastSuccessfulScanAt} is not null`));
+      for (const d of due) if (await requestMonthlyReport(d.id, month.key)) out.monthlyReports++;
+    }
   }
   if (await claimPeriod("maintenance", local.date)) {
     await enqueueJob({ type: "maintenance", dedupeKey: `maintenance:${local.date}`, priority: 200, maxAttempts: 2 });

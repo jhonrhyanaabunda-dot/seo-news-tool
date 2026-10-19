@@ -11,6 +11,7 @@ import { env } from "@/lib/env";
 import { sendTrackedEmail } from "@/lib/email/send";
 import { renderTestEmail } from "@/lib/email/templates";
 import { sendNewsletterPreview } from "@/lib/email/reports";
+import { sendMonthlyReportPreview } from "@/lib/reports/service";
 import { kickProcessing } from "@/lib/jobs/kick";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security/rate-limit";
@@ -45,6 +46,7 @@ export async function saveSettingsAction(_prev: SettingsState, formData: FormDat
     ...input.data,
     dailyDigestEnabled: bool(formData.get("dailyDigestEnabled")),
     weeklyDigestEnabled: bool(formData.get("weeklyDigestEnabled")),
+    monthlyReportsEnabled: bool(formData.get("monthlyReportsEnabled")),
     sendDigestWhenNoChanges: bool(formData.get("sendDigestWhenNoChanges")),
     instantAlertsEnabled: bool(formData.get("instantAlertsEnabled")),
     schedulerPaused: bool(formData.get("schedulerPaused")),
@@ -82,6 +84,17 @@ export async function retryJobAction(formData: FormData) {
     .where(and(eq(jobs.id, id), eq(jobs.status, "failed")));
   kickProcessing();
   revalidatePath("/admin/system");
+}
+
+/** Sends the latest completed report, as the monthly email, to the admin only. */
+export async function sendMonthlyReportPreviewAction(formData: FormData) {
+  const user = await assertAdmin();
+  const to = parseEmailList(String(formData.get("to") ?? user.email)).valid[0] ?? user.email;
+  const limit = await checkRateLimit({ key: `test-email:${user.id}`, limit: 5, windowSeconds: 3600 });
+  if (!limit.allowed) redirect("/admin/settings?notice=rate-limited");
+  const r = await sendMonthlyReportPreview(to, user.id);
+  const notice = r === "no-report" ? "monthly-no-report" : r !== "sent" ? "test-failed" : env().EMAIL_PROVIDER === "console" ? "test-console" : "preview-sent";
+  redirect(`/admin/settings?notice=${notice}`);
 }
 
 export async function sendNewsletterPreviewAction(formData: FormData) {

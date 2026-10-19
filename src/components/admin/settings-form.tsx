@@ -85,6 +85,12 @@ export function SettingsForm({ settings, timezone }: { settings: AppSettings; ti
             </select>
           </div>
         </div>
+        <Check
+          name="monthlyReportsEnabled"
+          label="Monthly SEO report"
+          description="On the 1st of each month, emails every active dealership its SEO report for the month just ended, to its notification emails and the management recipients. Off until you switch it on."
+          defaultChecked={settings.monthlyReportsEnabled}
+        />
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <Check name="weeklyDigestEnabled" label="Weekly SEO newsletter" defaultChecked={settings.weeklyDigestEnabled} />

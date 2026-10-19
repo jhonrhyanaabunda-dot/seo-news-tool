@@ -57,6 +57,11 @@ function scoreColor(score: number | null) {
   return C.critical;
 }
 
+/** Report emails are not change-triggered, so they say why they arrived instead. */
+const MONTHLY_REPORT_FOOTER = "You receive this monthly report because your address is listed as a notification contact for this dealership in the A3 SEO &amp; News Monitor.";
+const REPORT_FOOTER = "You receive this report because an A3 Brands administrator sent it to the notification contacts for this dealership.";
+/** "COMPLETED" → "Completed"; labels that are already worded are left alone. */
+const plainStatus = (s: string) => (s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " ") : s);
 const DEFAULT_FOOTER = "You receive this because your address is listed as a notification contact in the A3 SEO &amp; News Monitor. Emails are only sent when something meaningful changes.";
 
 function layout(title: string, preheader: string, body: string, dashboardUrl: string, footerHtml = DEFAULT_FOOTER): string {
@@ -376,13 +381,19 @@ export function renderReportEmail(input: {
   newsSummary: string | null;
   reportUrl: string;
   dashboardUrl: string;
+  /** Monthly report: e.g. "October 2026", used in the heading and subject. */
+  period?: string;
+  /** Monthly report: the month-over-month score sentence. */
+  periodLine?: string;
 }) {
   const tone: Record<string, string> = { CRITICAL: C.critical, HIGH: C.warning, MEDIUM: C.accent, LOW: C.muted };
+  const title = input.period ? `${input.dealershipName}: monthly SEO report, ${input.period}` : `${input.dealershipName} — SEO report`;
   const top = input.actions.slice(0, 5);
   const body = `
-  <h2 style="font-size:18px;margin:0 0 6px;color:${C.brand};">${escapeHtml(input.dealershipName)} — SEO report</h2>
+  <h2 style="font-size:18px;margin:0 0 6px;color:${C.brand};">${escapeHtml(title)}</h2>
   <div style="font-size:13px;color:${C.muted};margin-bottom:14px;"><a href="${escapeHtml(input.websiteUrl)}" style="color:${C.muted};">${escapeHtml(input.websiteUrl)}</a></div>
-  <div style="font-size:14px;margin-bottom:12px;"><strong>Score:</strong> ${input.score === null ? "Not scored" : `${input.score}/100`} · <strong>Status:</strong> ${escapeHtml(input.statusLabel)} · ${input.pagesAnalyzed} pages analyzed${input.pagesProtected ? ` · ${input.pagesProtected} protected` : ""}</div>
+  <div style="font-size:14px;margin-bottom:12px;"><strong>Score:</strong> ${input.score === null ? "Not scored" : `${input.score}/100`} · <strong>Status:</strong> ${escapeHtml(plainStatus(input.statusLabel))} · ${input.pagesAnalyzed} pages analyzed${input.pagesProtected ? ` · ${input.pagesProtected} protected` : ""}</div>
+  ${input.periodLine ? `<p style="font-size:15px;line-height:1.5;margin:0 0 12px;font-weight:600;">${escapeHtml(input.periodLine)}</p>` : ""}
   <p style="font-size:14px;line-height:1.6;margin:0 0 16px;">${escapeHtml(input.executiveSummary)}</p>
   ${
     top.length
@@ -394,9 +405,10 @@ export function renderReportEmail(input: {
   ${input.newsSummary ? `<p style="font-size:13px;color:${C.text};line-height:1.5;"><strong>News:</strong> ${escapeHtml(input.newsSummary)}</p>` : ""}
   <div style="margin-top:16px;"><a href="${escapeHtml(input.reportUrl)}" style="font-size:14px;color:${C.accent};font-weight:600;">Open the full report →</a></div>`;
   const text = [
-    `${input.dealershipName} — SEO report`,
+    title,
     input.websiteUrl,
-    `Score: ${input.score === null ? "Not scored" : `${input.score}/100`} · Status: ${input.statusLabel} · ${input.pagesAnalyzed} pages analyzed${input.pagesProtected ? ` · ${input.pagesProtected} protected` : ""}`,
+    ...(input.periodLine ? [input.periodLine] : []),
+    `Score: ${input.score === null ? "Not scored" : `${input.score}/100`} · Status: ${plainStatus(input.statusLabel)} · ${input.pagesAnalyzed} pages analyzed${input.pagesProtected ? ` · ${input.pagesProtected} protected` : ""}`,
     "",
     input.executiveSummary,
     "",
@@ -405,5 +417,6 @@ export function renderReportEmail(input: {
     ...(input.newsSummary ? [`News: ${input.newsSummary}`, ""] : []),
     `Full report: ${input.reportUrl}`,
   ].join("\n");
-  return { subject: `SEO report: ${input.dealershipName}`, html: layout(`SEO report: ${input.dealershipName}`, input.executiveSummary.slice(0, 120), body, input.dashboardUrl), text };
+  const subject = input.period ? `Monthly SEO report: ${input.dealershipName}, ${input.period}` : `SEO report: ${input.dealershipName}`;
+  return { subject, html: layout(subject, input.executiveSummary.slice(0, 120), body, input.dashboardUrl, input.period ? MONTHLY_REPORT_FOOTER : REPORT_FOOTER), text };
 }

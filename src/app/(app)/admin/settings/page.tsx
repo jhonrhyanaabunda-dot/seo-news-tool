@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { getSettings } from "@/lib/settings";
-import { sendNewsletterPreviewAction, sendTestEmailAction } from "@/app/actions/settings";
+import { sendMonthlyReportPreviewAction, sendNewsletterPreviewAction, sendTestEmailAction } from "@/app/actions/settings";
 import { SettingsForm } from "@/components/admin/settings-form";
 import { SubmitButton } from "@/components/client/submit-button";
 import { Card, Notice, PageHeader } from "@/components/ui";
@@ -23,7 +23,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return (
     <>
       {notice === "test-sent" && <Notice tone="success">Test email sent. Check your inbox (and spam folder).</Notice>}
-      {notice === "preview-sent" && <Notice tone="success">Newsletter preview sent. Check your inbox (and spam folder).</Notice>}
+      {notice === "preview-sent" && <Notice tone="success">Preview sent. Check your inbox (and spam folder).</Notice>}
+      {notice === "monthly-no-report" && <Notice tone="warning">No report has been generated yet. Open a dealership, choose Reports, then Generate report, and try the preview again.</Notice>}
       {notice === "test-console" && (
         <Notice tone="warning">
           Not delivered: email is in development mode (EMAIL_PROVIDER=console), so the test email was only written to the server log. Configure Resend or SMTP to deliver real emails.
@@ -69,6 +70,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <p className="text-sm text-slate-600">See this week’s newsletter now, exactly as recipients will get it.</p>
               <SubmitButton className="btn" pendingText="Sending…">
                 Send newsletter preview to me
+              </SubmitButton>
+            </form>
+            <form action={sendMonthlyReportPreviewAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+              <input type="hidden" name="to" value={user.email} />
+              <p className="text-sm text-slate-600">See the monthly SEO report email, built from the latest generated report, before switching it on.</p>
+              <SubmitButton className="btn" pendingText="Sending…">
+                Send monthly report preview to me
               </SubmitButton>
             </form>
           </Card>
