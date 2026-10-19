@@ -54,6 +54,11 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
       <PageHeader
         title="News monitoring"
         description="News about your dealerships, grouped by store and newest first: mentions of the store, its dealer group, custom keywords and local dealership news. Brand recalls and new models are kept separately under Brand & industry."
+        actions={
+          <Link href={scope === "dealership" ? "/news/review" : `/news/review?scope=${scope}`} className="btn-primary">
+            Review one by one
+          </Link>
+        }
       />
       <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-[var(--shadow-card)]">
         <div>

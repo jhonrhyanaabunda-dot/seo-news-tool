@@ -49,3 +49,28 @@ export async function markAllReviewedAction(formData: FormData) {
   revalidatePath("/news");
   revalidatePath("/", "layout");
 }
+
+/**
+ * One decision from the review queue. Unlike the form actions above it does not
+ * revalidate: the queue moves to the next article itself and refreshes once it
+ * runs out, so the reviewer's place is never lost. Returns whether a row changed.
+ */
+export async function reviewArticleAction(articleId: number, status: string, restoreScope?: "dealership" | "brand"): Promise<boolean> {
+  const user = await assertUser();
+  const parsed = schema.safeParse({ articleId, status });
+  if (!parsed.success) return false;
+  const back = parsed.data.status === "new";
+  const updated = await db
+    .update(newsArticles)
+    .set({
+      relevance: parsed.data.status,
+      // "new" is the queue's undo: the article goes back to never reviewed.
+      reviewedBy: back ? null : user.id,
+      reviewedAt: back ? null : new Date(),
+      // Undoing "Relevant" on brand context puts it back where it was.
+      ...(parsed.data.status === "relevant" ? { scope: "dealership" as const } : back && (restoreScope === "dealership" || restoreScope === "brand") ? { scope: restoreScope } : {}),
+    })
+    .where(and(eq(newsArticles.id, parsed.data.articleId), allowedFilter(await accessibleDealershipIds(user), newsArticles.dealershipId)))
+    .returning({ id: newsArticles.id });
+  return updated.length > 0;
+}

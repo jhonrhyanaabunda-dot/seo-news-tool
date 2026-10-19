@@ -53,6 +53,7 @@ const STAFF_PAGES: Array<[name: string, path: string, expect: string]> = [
   ["dealer history", "/dealerships/1?tab=history", "SEO score history"],
   ["client view", "/dealerships/1?view=client", "SEO health score"],
   ["news", "/news", "community car show"],
+  ["news review", "/news/review", "Review news"],
   ["seo news", "/seo-news", "SEO news"],
   ["admin dealerships", "/admin/dealerships", "Example Motors"],
   ["admin edit dealership", "/admin/dealerships/1/edit", "Example Motors"],
@@ -81,6 +82,29 @@ console.log("1. Staff (administrator): every screen loads, shows its data, and b
   ck("biggest changes shows Example Motors +6 (78 → 84)", movers.includes("Example Motors") && movers.includes("+6") && movers.includes("78 → 84"), movers.slice(0, 200));
   await page.goto(`${BASE}/?trend=30`, { waitUntil: "networkidle" });
   ck("the 30-day switch keeps the dashboard working", await page.getByText("over 30 days").first().isVisible().catch(() => false) || await page.getByText("Not enough history yet").first().isVisible().catch(() => false));
+  // Review queue, both scopes: the car show (relevance 75) comes before the Outback trim (30).
+  problems.length = 0;
+  await page.goto(`${BASE}/news/review?scope=all`, { waitUntil: "networkidle" });
+  const queueTitle = () => page.locator("#queue-title").innerText().catch(() => "");
+  const left = () => page.getByText("left to review").first().innerText().catch(() => "");
+  ck("review queue starts with the most relevant article", (await queueTitle()).includes("community car show") && (await left()).startsWith("2"), `${await queueTitle()} | ${await left()}`);
+  await page.keyboard.press("r");
+  await page.getByText("Outback").first().waitFor({ timeout: 10000 }).catch(() => {});
+  ck("R marks it relevant and moves on", (await queueTitle()).includes("Outback") && (await left()).startsWith("1"), `${await queueTitle()} | ${await left()}`);
+  await page.keyboard.press("u");
+  await page.locator("#queue-title", { hasText: "community car show" }).waitFor({ timeout: 10000 }).catch(() => {});
+  ck("U undoes it", (await queueTitle()).includes("community car show") && (await left()).startsWith("2"), `${await queueTitle()} | ${await left()}`);
+  await page.keyboard.press("n");
+  await page.locator("#queue-title", { hasText: "Outback" }).waitFor({ timeout: 10000 }).catch(() => {});
+  await page.reload({ waitUntil: "networkidle" });
+  ck("decisions are saved: after a reload only the Outback article is left", (await queueTitle()).includes("Outback") && (await left()).startsWith("1"), `${await queueTitle()} | ${await left()}`);
+  await page.keyboard.press("Enter");
+  await page.getByText("All caught up").first().waitFor({ timeout: 10000 }).catch(() => {});
+  ck("Enter marks the last one reviewed: all caught up", await page.getByText("All caught up").first().isVisible().catch(() => false));
+  ck("review queue: no console errors or policy violations", problems.length === 0, problems.join(" | "));
+  await page.goto(`${BASE}/news?status=not_relevant`, { waitUntil: "networkidle" });
+  ck("the queue's decision shows in the news list", await page.getByText("community car show").first().isVisible().catch(() => false));
+
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await page.screenshot({ path: path.join(SHOTS, "dashboard.png"), fullPage: true });
   await page.goto(`${BASE}/dealerships/1`, { waitUntil: "networkidle" });
@@ -88,7 +112,7 @@ console.log("1. Staff (administrator): every screen loads, shows its data, and b
 
   console.log("2. Phone width: no sideways scrolling");
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const p of ["/", "/dealerships/1", "/dealerships/1?view=client", "/news", "/admin/settings", "/account"]) {
+  for (const p of ["/", "/dealerships/1", "/dealerships/1?view=client", "/news", "/news/review", "/admin/settings", "/account"]) {
     await page.goto(`${BASE}${p}`, { waitUntil: "networkidle" });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     ck(`${p} fits a 390px phone`, overflow <= 0, `${overflow}px wider`);

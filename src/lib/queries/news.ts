@@ -95,3 +95,35 @@ export async function getNewsByDealership(opts: NewsFilters & { perDealership: n
     }),
   );
 }
+
+/**
+ * Unreviewed articles for the review queue: the ones most likely to matter
+ * first (highest relevance, then newest), so a short session clears the
+ * important ones.
+ */
+export async function getReviewQueue(opts: { allowed: number[] | null; scope: NewsScopeFilter; limit: number }) {
+  const cond = newsWhere({ allowed: opts.allowed, scope: opts.scope, status: "new" });
+  const [{ total }] = await db.select({ total: count() }).from(newsArticles).where(cond);
+  const rows = await db
+    .select({
+      id: newsArticles.id,
+      title: newsArticles.title,
+      url: newsArticles.url,
+      originalUrl: newsArticles.originalUrl,
+      source: newsArticles.source,
+      summary: newsArticles.summary,
+      publishedAt: newsArticles.publishedAt,
+      publishedPrecision: newsArticles.publishedPrecision,
+      relevanceScore: newsArticles.relevanceScore,
+      matchedKeywords: newsArticles.matchedKeywords,
+      topics: newsArticles.topics,
+      scope: newsArticles.scope,
+      dealershipName: dealerships.name,
+    })
+    .from(newsArticles)
+    .innerJoin(dealerships, eq(dealerships.id, newsArticles.dealershipId))
+    .where(cond)
+    .orderBy(desc(newsArticles.relevanceScore), sql`coalesce(${newsArticles.publishedAt}, ${newsArticles.detectedAt}) desc`, desc(newsArticles.id))
+    .limit(opts.limit);
+  return { rows, total: Number(total) };
+}
