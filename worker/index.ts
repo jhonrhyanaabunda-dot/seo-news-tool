@@ -34,18 +34,30 @@ async function main() {
     }).listen(Number(process.env.PORT));
   }
 
+  // Consecutive failed ticks. A blip recovers on the next poll; a database that keeps refusing
+  // (quota exceeded, outage) gets a slower retry, doubling up to ERROR_MAX_MS, so the worker
+  // neither hammers it nor fills the log (it once wrote 100 MB of identical stack traces).
+  let failures = 0;
+  let lastError = "";
   while (!stopping) {
     try {
       const r = await runTick({ budgetMs: BUDGET_MS, workerId, schedule: true, role: "worker" });
       lastTick = { at: new Date().toISOString(), processed: r.processed };
+      if (failures > 0) console.log(`[worker] database reachable again after ${failures} failed attempt${failures === 1 ? "" : "s"}`);
+      failures = 0;
+      lastError = "";
       if (r.processed > 0) console.log(`[worker] processed=${r.processed} completed=${r.completed} continued=${r.continued} failed=${r.failed} in ${r.durationMs}ms`);
-      if (r.processed === 0) await new Promise((res) => setTimeout(res, POLL_MS));
+      if (r.processed === 0) await sleep(POLL_MS);
     } catch (err) {
-      // A dropped connection (Mac waking up, Wi-Fi change) recovers on the next poll: one line, not a stack trace.
+      failures++;
       const { isTransientNetworkError, errorMessage } = await import("@/lib/logger");
-      if (isTransientNetworkError(err)) console.warn(`[worker] tick skipped: connection problem (${errorMessage(err).split("\n").pop()})`);
-      else console.error("[worker] tick failed", err);
-      await new Promise((res) => setTimeout(res, POLL_MS));
+      const message = errorMessage(err).split("\n").pop() ?? "unknown error";
+      const delay = retryDelay(failures);
+      // Full detail the first time; afterwards one line when the error changes or every 50th attempt.
+      if (failures === 1 && !isTransientNetworkError(err)) console.error("[worker] tick failed", err);
+      else if (message !== lastError || failures % 50 === 0) console.warn(`[worker] tick failed (attempt ${failures}, retrying in ${Math.round(delay / 1000)}s): ${message}`);
+      lastError = message;
+      await sleep(delay);
     }
   }
   const { closeBrowser } = await import("@/lib/seo/browser-fetch");
@@ -54,6 +66,18 @@ async function main() {
   await retireWorker(workerId).catch(() => {});
   console.log("[worker] stopped");
   process.exit(0);
+}
+
+const ERROR_MAX_MS = 5 * 60_000;
+
+/** The first two failures retry at the normal poll interval; after that the wait doubles up to five minutes. */
+function retryDelay(failures: number, pollMs = POLL_MS): number {
+  if (failures <= 2) return pollMs;
+  return Math.min(ERROR_MAX_MS, pollMs * 2 ** (failures - 2));
+}
+
+function sleep(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
 }
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

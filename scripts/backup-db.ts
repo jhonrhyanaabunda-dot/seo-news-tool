@@ -73,6 +73,10 @@ async function main() {
         manifest.tables.push({ name, file, rows: rows.length, bytes: statSync(target).size });
       }
     });
+  } catch (err) {
+    // A failed run must not leave a folder that looks like a backup (three empty ones once sat beside the real backups).
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
   } finally {
     await sql.end();
   }
