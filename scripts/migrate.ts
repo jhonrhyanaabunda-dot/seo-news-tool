@@ -5,6 +5,7 @@
  * some poolers), otherwise DATABASE_URL.
  */
 import "./load-env";
+import { databaseUrls } from "../src/lib/env-aliases";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
@@ -20,7 +21,8 @@ async function main() {
     console.log("Vercel preview build — skipping migrations (production deploys apply them).");
     return;
   }
-  const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+  const dbUrls = databaseUrls(process.env);
+  const url = dbUrls.unpooled || dbUrls.url;
   if (!url) throw new Error("DATABASE_URL is not set");
   const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
   const db = drizzle(sql);

@@ -15,6 +15,7 @@
  * bearer credentials that should not sit in a backup folder.
  */
 import "./load-env";
+import { databaseUrls } from "../src/lib/env-aliases";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -28,7 +29,8 @@ const SKIP = new Set(["sessions", "rate_limits", "site_cache"]);
 async function main() {
   const { values } = parseArgs({ options: { "keep-days": { type: "string", default: "30" } } });
   const keepDays = Math.max(1, Number(values["keep-days"]) || 30);
-  const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+  const dbUrls = databaseUrls(process.env);
+  const url = dbUrls.unpooled || dbUrls.url;
   if (!url) throw new Error("DATABASE_URL is not set");
   const root = process.env.BACKUP_DIR || path.join(homedir(), "Backups", "a3-seo-monitor");
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);

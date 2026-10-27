@@ -97,3 +97,15 @@ test("an empty 200 document is not analysed as a page missing its title and head
   assert.equal(isEmptyDocument('<html><head><meta http-equiv="refresh" content="0;url=/home"></head></html>'), false, "a meta refresh is a real page");
   assert.equal(classifyPageResult({ status: "failed", httpStatus: 200, errorCode: "EMPTY_RESPONSE" }), "NETWORK_ERROR");
 });
+
+test("APP_DATABASE_URL overrides an integration-managed DATABASE_URL, and removing it switches back", async () => {
+  const { databaseUrls, applyEnvAliases } = await import("../src/lib/env-aliases");
+  const neon = { DATABASE_URL: "postgres://neon-pooled", DATABASE_URL_UNPOOLED: "postgres://neon-direct" };
+  assert.deepEqual(databaseUrls(neon), { url: "postgres://neon-pooled", unpooled: "postgres://neon-direct" });
+  const both = { ...neon, APP_DATABASE_URL: "postgres://supa-pooled", APP_DATABASE_URL_UNPOOLED: "postgres://supa-session" };
+  assert.deepEqual(databaseUrls(both), { url: "postgres://supa-pooled", unpooled: "postgres://supa-session" });
+  // An override without its own unpooled URL must never fall back to the other database's.
+  assert.deepEqual(databaseUrls({ ...neon, APP_DATABASE_URL: "postgres://supa-pooled" }), { url: "postgres://supa-pooled", unpooled: undefined });
+  assert.equal(applyEnvAliases(both).DATABASE_URL, "postgres://supa-pooled");
+  assert.equal(applyEnvAliases({ ...neon, APP_DATABASE_URL: "" }).DATABASE_URL, "postgres://neon-pooled");
+});
