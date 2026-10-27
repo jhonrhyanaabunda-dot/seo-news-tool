@@ -24,8 +24,28 @@ export const ENV_ALIASES: Record<string, string> = {
 export function databaseUrls(source: Record<string, string | undefined>): { url: string | undefined; unpooled: string | undefined } {
   const pick = (...vals: Array<string | undefined>) => vals.find((v) => v !== undefined && v !== "");
   const override = pick(source.APP_DATABASE_URL);
-  if (override) return { url: override, unpooled: pick(source.APP_DATABASE_URL_UNPOOLED) };
+  if (override) return { url: supabaseSessionMode(override), unpooled: pick(source.APP_DATABASE_URL_UNPOOLED) };
   return { url: pick(source.DATABASE_URL), unpooled: pick(source.DATABASE_URL_UNPOOLED) };
+}
+
+/**
+ * Supabase's transaction pooler (Supavisor, port 6543) can leave a connection stuck mid-query when
+ * postgres.js pipelines several queries on it. On Vercel one function instance serves many requests
+ * through a shared pool of 3, so three stuck connections hung every page until the 300 s timeout
+ * (2026-10-27). The session pooler on the same host (port 5432) passes the protocol straight
+ * through; with idle_timeout 20 s the few connections it holds are released quickly.
+ */
+export function supabaseSessionMode(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith(".pooler.supabase.com") && u.port === "6543") {
+      u.port = "5432";
+      return u.toString();
+    }
+  } catch {
+    /* not a URL: leave it for the env validation to report */
+  }
+  return url;
 }
 
 export function applyEnvAliases(source: Record<string, string | undefined>): Record<string, string | undefined> {

@@ -109,3 +109,12 @@ test("APP_DATABASE_URL overrides an integration-managed DATABASE_URL, and removi
   assert.equal(applyEnvAliases(both).DATABASE_URL, "postgres://supa-pooled");
   assert.equal(applyEnvAliases({ ...neon, APP_DATABASE_URL: "" }).DATABASE_URL, "postgres://neon-pooled");
 });
+
+test("Supabase's transaction pooler URL is used in session mode (same host, port 5432)", async () => {
+  const { supabaseSessionMode, databaseUrls } = await import("../src/lib/env-aliases");
+  const tx = "postgresql://postgres.abc:p%40ss@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
+  assert.equal(supabaseSessionMode(tx), "postgresql://postgres.abc:p%40ss@aws-0-us-east-1.pooler.supabase.com:5432/postgres");
+  assert.equal(databaseUrls({ APP_DATABASE_URL: tx }).url, "postgresql://postgres.abc:p%40ss@aws-0-us-east-1.pooler.supabase.com:5432/postgres");
+  // Anything else is left exactly as given.
+  for (const other of ["postgres://neon-pooled", "postgresql://u:p@ep-x-pooler.us-east-1.aws.neon.tech:5432/db", "postgresql://u:p@db.example.com:6543/db"]) assert.equal(supabaseSessionMode(other), other);
+});
