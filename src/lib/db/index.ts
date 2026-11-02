@@ -16,10 +16,16 @@ import { env } from "@/lib/env";
  */
 const globalForDb = globalThis as unknown as { __a3Sql?: postgres.Sql };
 
+// The database's session pooler admits 15 connections in all (Supabase free plan). A paused Vercel
+// instance cannot close its idle connections, so they stay reserved until the instance is shut down;
+// with 3 per instance plus the worker's 5, a few paused instances used every slot and pages failed
+// with "max clients reached" (2026-11-02). Two per instance (postgres.js pipelines queries on a
+// connection, which session mode allows) and a short idle timeout keep the footprint small.
 function createClient() {
+  const production = env().NODE_ENV === "production";
   return postgres(env().DATABASE_URL, {
-    max: env().DATABASE_POOL_MAX ?? (env().NODE_ENV === "production" ? 3 : 5),
-    idle_timeout: 20,
+    max: env().DATABASE_POOL_MAX ?? (production ? 2 : 5),
+    idle_timeout: production ? 5 : 20,
     connect_timeout: 15,
     prepare: false,
   });
