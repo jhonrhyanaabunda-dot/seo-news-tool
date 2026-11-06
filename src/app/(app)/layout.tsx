@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
 import { accessibleDealershipIds, isClient } from "@/lib/auth/tenant";

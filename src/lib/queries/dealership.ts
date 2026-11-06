@@ -1,25 +1,60 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, count, desc, eq, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { dealerships, newsArticles, newsKeywords, reports, scanEvents, scanPages, seoChecks, seoIssues, seoScans } from "@/lib/db/schema";
+import { dealerships, newsArticles, newsKeywords, reports, scanEvents, scanPages, seoChecks, seoIssues, seoScans, type CrawlState, type ScanChangeSummary } from "@/lib/db/schema";
 import { presentedScanOrder } from "@/lib/seo/presented-scan";
 import type { WorkflowFilter } from "@/lib/issues/workflow";
+import { omitColumns } from "./columns";
 
 /**
  * Cached per request: the layout reads it to decide whether the route exists and
  * the page reads it again to render, and that should be one query, not two.
  */
+export const ACTIVE_SCAN_STATUSES: readonly string[] = ["queued", "crawling", "finalizing"];
+
 export const getDealership = cache(async (id: number) => {
   const [d] = await db.select().from(dealerships).where(eq(dealerships.id, id)).limit(1);
   return d ?? null;
 });
 
-export async function getLatestScans(dealershipId: number) {
+/**
+ * A scan for display. Crawl state is working memory and the fingerprints exist for
+ * digests; both are large and no screen reads them.
+ */
+const scanColumns = omitColumns(getTableColumns(seoScans), "crawlState", "issueFingerprints");
+
+/**
+ * The most recent attempt, and so whether one is running: a scan can only start when none is
+ * active (seo_scans_one_active_idx), so an active scan is always the newest one created.
+ */
+export async function getLatestScanAttempt(dealershipId: number) {
+  const [attempt] = await db
+    .select({
+      id: seoScans.id,
+      status: seoScans.status,
+      errorMessage: seoScans.errorMessage,
+      createdAt: seoScans.createdAt,
+      startedAt: seoScans.startedAt,
+      updatedAt: seoScans.updatedAt,
+      crawlPhase: sql<CrawlState["phase"] | null>`${seoScans.crawlState}->>'phase'`,
+      // Evaluated against the database clock — the same one that stamps updated_at — so it stays
+      // correct regardless of the app server's time.
+      stalled: sql<boolean>`${seoScans.updatedAt} < now() - interval '5 minutes'`,
+    })
+    .from(seoScans)
+    .where(eq(seoScans.dealershipId, dealershipId))
+    .orderBy(desc(seoScans.createdAt))
+    .limit(1);
+  return attempt ?? null;
+}
+
+/** Cached per request: the header, the banner and the client dashboard all ask for the same scans. */
+export const getLatestScans = cache(async (dealershipId: number) => {
   // The scan to present (see presented-scan), and the newest completed one, to say when a newer check was blocked.
-  const [[latest], [newest]] = await Promise.all([
+  const [[latest], [newest], attempt] = await Promise.all([
     db
-      .select()
+      .select(scanColumns)
       .from(seoScans)
       .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
       .orderBy(...presentedScanOrder)
@@ -30,27 +65,17 @@ export async function getLatestScans(dealershipId: number) {
       .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
       .orderBy(desc(seoScans.completedAt))
       .limit(1),
+    getLatestScanAttempt(dealershipId),
   ]);
   const newerBlocked = latest && newest && newest.id !== latest.id && newest.outcome === "blocked" ? { completedAt: newest.completedAt } : null;
-  // `stalled` is evaluated against the database clock — the same one that stamps
-  // updated_at — so it stays correct regardless of the app server's time.
-  const [active] = await db
-    .select({
-      scan: seoScans,
-      stalled: sql<boolean>`${seoScans.updatedAt} < now() - interval '5 minutes'`,
-    })
-    .from(seoScans)
-    .where(and(eq(seoScans.dealershipId, dealershipId), inArray(seoScans.status, ["queued", "crawling", "finalizing"])))
-    .limit(1);
-  const [lastAttempt] = await db.select().from(seoScans).where(eq(seoScans.dealershipId, dealershipId)).orderBy(desc(seoScans.createdAt)).limit(1);
   return {
     latest: latest ?? null,
     /** Set when the newest completed scan was blocked and an earlier one is presented instead. */
     newerBlocked,
-    active: active ? { ...active.scan, stalled: active.stalled } : null,
-    lastAttempt: lastAttempt ?? null,
+    active: attempt && ACTIVE_SCAN_STATUSES.includes(attempt.status) ? attempt : null,
+    lastAttempt: attempt ?? null,
   };
-}
+});
 
 export async function getScanProgress(scanId: number) {
   const [row] = await db
@@ -91,7 +116,11 @@ export async function getIssueCounts(scanId: number) {
   return { bySeverity, byCategory };
 }
 
-export async function getIssues(scanId: number, opts: { severity?: string; category?: string; pageId?: number; onlyNew?: boolean; workflow?: WorkflowFilter | null; page: number; pageSize: number }) {
+const issueColumns = omitColumns(getTableColumns(seoIssues), "details");
+/** Everything a page row shows; the stored page details, Open Graph tags and schema lists are for the scoring, not the table. */
+const pageColumns = omitColumns(getTableColumns(scanPages), "details", "h2", "openGraph", "schemaTypes");
+
+export async function getIssues(scanId: number, opts: { severity?: string; category?: string; checkKey?: string; pageId?: number; onlyNew?: boolean; workflow?: WorkflowFilter | null; page: number; pageSize: number }) {
   const where: SQL[] = [eq(seoIssues.scanId, scanId)];
   // Issue workflow filter (issue_states, keyed by dealership + fingerprint). No row means "open".
   if (opts.workflow) {
@@ -102,17 +131,20 @@ export async function getIssues(scanId: number, opts: { severity?: string; categ
   }
   if (opts.severity && ["critical", "warning", "info"].includes(opts.severity)) where.push(eq(seoIssues.severity, opts.severity as "critical" | "warning" | "info"));
   if (opts.category) where.push(eq(seoIssues.category, opts.category));
+  if (opts.checkKey) where.push(eq(seoIssues.checkKey, opts.checkKey));
   if (opts.pageId) where.push(eq(seoIssues.pageId, opts.pageId));
   if (opts.onlyNew) where.push(eq(seoIssues.isNew, true));
   const cond = and(...where);
-  const [{ total }] = await db.select({ total: count() }).from(seoIssues).where(cond);
-  const rows = await db
-    .select()
-    .from(seoIssues)
-    .where(cond)
-    .orderBy(sql`case ${seoIssues.severity} when 'critical' then 0 when 'warning' then 1 else 2 end`, asc(seoIssues.checkKey), asc(seoIssues.url))
-    .limit(opts.pageSize)
-    .offset((opts.page - 1) * opts.pageSize);
+  const [[{ total }], rows] = await Promise.all([
+    db.select({ total: count() }).from(seoIssues).where(cond),
+    db
+      .select({ ...issueColumns, target: sql<string | null>`${seoIssues.details}->>'target'` })
+      .from(seoIssues)
+      .where(cond)
+      .orderBy(sql`case ${seoIssues.severity} when 'critical' then 0 when 'warning' then 1 else 2 end`, asc(seoIssues.checkKey), asc(seoIssues.url))
+      .limit(opts.pageSize)
+      .offset((opts.page - 1) * opts.pageSize),
+  ]);
   return { rows, total };
 }
 
@@ -124,14 +156,16 @@ export async function getPages(scanId: number, opts: { filter?: string; page: nu
   else if (opts.filter === "noindex") where.push(eq(scanPages.indexable, false));
   else if (opts.filter !== "all") where.push(ne(scanPages.status, "skipped"));
   const cond = and(...where);
-  const [{ total }] = await db.select({ total: count() }).from(scanPages).where(cond);
-  const rows = await db
-    .select()
-    .from(scanPages)
-    .where(cond)
-    .orderBy(desc(scanPages.isImportant), asc(scanPages.depth), asc(scanPages.id))
-    .limit(opts.pageSize)
-    .offset((opts.page - 1) * opts.pageSize);
+  const [[{ total }], rows] = await Promise.all([
+    db.select({ total: count() }).from(scanPages).where(cond),
+    db
+      .select(pageColumns)
+      .from(scanPages)
+      .where(cond)
+      .orderBy(desc(scanPages.isImportant), asc(scanPages.depth), asc(scanPages.id))
+      .limit(opts.pageSize)
+      .offset((opts.page - 1) * opts.pageSize),
+  ]);
   return { rows, total };
 }
 
@@ -155,7 +189,8 @@ export async function getScanHistory(dealershipId: number, limit = 60) {
       completedAt: seoScans.completedAt,
       createdAt: seoScans.createdAt,
       errorMessage: seoScans.errorMessage,
-      changeSummary: seoScans.changeSummary,
+      // The counts only: the summary also holds up to 100 issue entries, shown when a single scan is opened.
+      changeSummary: sql<Pick<ScanChangeSummary, "previousScanId" | "scoreDelta" | "newCriticalCount" | "newWarningCount" | "resolvedCount"> | null>`case when ${seoScans.changeSummary} is null then null else jsonb_build_object('previousScanId', ${seoScans.changeSummary}->'previousScanId', 'scoreDelta', ${seoScans.changeSummary}->'scoreDelta', 'newCriticalCount', ${seoScans.changeSummary}->'newCriticalCount', 'newWarningCount', ${seoScans.changeSummary}->'newWarningCount', 'resolvedCount', ${seoScans.changeSummary}->'resolvedCount') end`,
       detailsRetained: seoScans.detailsRetained,
       blockedReason: sql<string | null>`${seoScans.siteChecks}->>'blockedReason'`,
       auditMode: sql<string | null>`${seoScans.siteChecks}->>'auditMode'`,
@@ -168,7 +203,7 @@ export async function getScanHistory(dealershipId: number, limit = 60) {
 
 export async function getScan(dealershipId: number, scanId: number) {
   const [s] = await db
-    .select()
+    .select(scanColumns)
     .from(seoScans)
     .where(and(eq(seoScans.id, scanId), eq(seoScans.dealershipId, dealershipId)))
     .limit(1);

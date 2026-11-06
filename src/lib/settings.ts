@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { inQuietHours, localParts } from "./local-time";
@@ -50,11 +51,12 @@ export const settingsSchema = z.object({
 
 export type AppSettings = z.infer<typeof settingsSchema>;
 
-export async function getSettings(): Promise<AppSettings> {
+/** Cached per request while a page renders (the dashboard reads settings three times); uncached in jobs and actions. */
+export const getSettings = cache(async (): Promise<AppSettings> => {
   const [row] = await db.select().from(settings).where(eq(settings.key, "app")).limit(1);
   const parsed = settingsSchema.safeParse(row?.value ?? {});
   return parsed.success ? parsed.data : settingsSchema.parse({});
-}
+});
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getSettings();

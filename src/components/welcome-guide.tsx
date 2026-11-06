@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { ArrowRight } from "lucide-react";
 import { dismissWelcomeAction } from "@/app/actions/onboarding";
 import { SubmitButton } from "@/components/client/submit-button";

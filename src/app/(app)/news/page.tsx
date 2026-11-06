@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { requireUser } from "@/lib/auth/guards";
 import { accessibleDealershipIds } from "@/lib/auth/tenant";
 import { env } from "@/lib/env";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const LABELS: Record<string, string> = { new: "New", relevant: "Relevant", reviewed: "Reviewed", not_relevant: "Not relevant", all: "All" };
 /** Newest articles shown per dealership in the combined view; "View all" opens that dealership's full list. */
-const PER_DEALERSHIP = 10;
+const PER_DEALERSHIP = 5;
 const PAGE_SIZE = 30;
 
 export default async function NewsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -35,9 +35,11 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
   const [sections, single, dealers, settings] = await Promise.all([
     getNewsByDealership({ ...filters, dealershipId, perDealership: dealershipId ? 0 : PER_DEALERSHIP }),
     dealershipId ? getNews({ ...filters, dealershipId, page, pageSize: PAGE_SIZE }) : null,
-    getDealershipOptions(allowed),
+    // Filtered to one dealership the feed holds only that one, and the dropdown still lists them all.
+    dealershipId ? getDealershipOptions(allowed) : null,
     getSettings(),
   ]);
+  const dealerOptions = dealers ?? sections.map((s) => s.dealer);
   const qs = (next: { dealership?: number; p?: number }) => {
     const q = new URLSearchParams();
     q.set("status", status);
@@ -89,7 +91,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
           </label>
           <select id="dealership" name="dealership" defaultValue={dealershipId ?? ""} className="input">
             <option value="">All dealerships</option>
-            {dealers.map((d) => (
+            {dealerOptions.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
               </option>
@@ -112,7 +114,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
       </form>
 
       {!dealershipId && sections.length > 1 && (
-        <nav aria-label="Jump to a dealership" className="mb-5 flex flex-wrap items-center gap-2 text-sm">
+        <nav aria-label="Jump to a dealership" className="chip-row mb-5 items-center text-sm">
           <span className="text-slate-500">Jump to:</span>
           {sections.map(({ dealer, total }) => (
             <a key={dealer.id} href={`#dealer-${dealer.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 shadow-[var(--shadow-card)] hover:border-brand-300 hover:text-brand-700">

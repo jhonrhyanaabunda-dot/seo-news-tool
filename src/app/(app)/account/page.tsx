@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import QRCode from "qrcode";
 import { ShieldCheck } from "lucide-react";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { requireUser } from "@/lib/auth/guards";
 import { TOTP_SETUP_COOKIE, decryptTotpSecret, otpauthUrl } from "@/lib/auth/totp";
 import { db } from "@/lib/db";

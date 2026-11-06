@@ -118,7 +118,8 @@ test("every surface presents the last scan that read the site, for up to a week"
   assert.deepEqual(rendered.params, [7]);
   assert.equal(new PgDialect().sqlToQuery(presentedScanOrderSql).sql, "case when s.outcome is distinct from 'blocked' and s.completed_at > now() - make_interval(days => 7) then 0 else 1 end, s.completed_at desc");
 
-  for (const f of ["src/lib/queries/dealership.ts", "src/lib/queries/client-dashboard.ts", "src/lib/reports/findings.ts", "src/lib/email/reports.ts", "src/lib/news/monitor.ts"])
+  assert.ok(read("src/lib/queries/client-dashboard.ts").includes("getLatestScans(dealershipId)"), "the client dashboard uses the same lookup as the staff page");
+  for (const f of ["src/lib/queries/dealership.ts", "src/lib/reports/findings.ts", "src/lib/email/reports.ts", "src/lib/news/monitor.ts"])
     assert.ok(read(f).includes(".orderBy(...presentedScanOrder)"), `${f} presents the same scan`);
   assert.ok(read("src/lib/queries/dashboard.ts").includes("order by ${presentedScanOrderSql} limit 1"), "dashboard rows present the same scan");
   // People are told when a newer check was blocked, rather than shown an older date without explanation.

@@ -750,7 +750,13 @@ export const seoArticles = pgTable(
     /** Ranking weight for "top stories": topic weights plus a bonus for official sources. */
     importance: integer("importance").notNull().default(0),
   },
-  (t) => [uniqueIndex("seo_articles_url_idx").on(t.urlHash), index("seo_articles_published_idx").on(t.publishedAt), index("seo_articles_feed_idx").on(t.feedId)],
+  (t) => [
+    uniqueIndex("seo_articles_url_idx").on(t.urlHash),
+    index("seo_articles_published_idx").on(t.publishedAt),
+    index("seo_articles_feed_idx").on(t.feedId),
+    // The SEO news feed's order: newest publication first, or when it was found if there is no date.
+    index("seo_articles_recent_idx").on(sql`coalesce(${t.publishedAt}, ${t.detectedAt}) desc`, sql`${t.id} desc`),
+  ],
 );
 
 /* ────────────────────────────── Reports ────────────────────────────── */
@@ -853,7 +859,7 @@ export const emailReports = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("email_reports_dedupe_idx").on(t.dedupeKey), index("email_reports_dealership_idx").on(t.dealershipId, t.createdAt)],
+  (t) => [uniqueIndex("email_reports_dedupe_idx").on(t.dedupeKey), index("email_reports_dealership_idx").on(t.dealershipId, t.createdAt), index("email_reports_created_idx").on(t.createdAt)],
 );
 
 /* ────────────────────────────── Jobs / scheduling ──────────────────── */
@@ -884,6 +890,8 @@ export const jobs = pgTable(
   },
   (t) => [
     index("jobs_pick_idx").on(t.status, t.runAfter, t.priority),
+    // "When did a job last start": the System page's check that the scheduler is alive.
+    index("jobs_started_idx").on(t.startedAt),
     uniqueIndex("jobs_dedupe_active_idx")
       .on(t.dedupeKey)
       .where(sql`${t.status} in ('queued', 'running')`),

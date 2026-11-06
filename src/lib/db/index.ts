@@ -31,8 +31,10 @@ function createClient() {
   });
 }
 
+// Kept on globalThis in production too: the pool is the scarce resource here, so a module evaluated
+// twice in one process (pages and route handlers can be separate bundles) must not open a second one.
 export const sqlClient = globalForDb.__a3Sql ?? createClient();
-if (env().NODE_ENV !== "production") globalForDb.__a3Sql = sqlClient;
+globalForDb.__a3Sql = sqlClient;
 
 export const db = drizzle(sqlClient, { schema });
 export type Db = typeof db;

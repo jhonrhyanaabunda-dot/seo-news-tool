@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { seoIssues } from "@/lib/db/schema";
@@ -43,10 +44,15 @@ export type { Opportunity };
  * the full list with `ignoredFindings` filled in.
  */
 export async function getOpportunities(scanId: number, opts: { includeIgnored?: boolean } = {}): Promise<Opportunity[]> {
-  const [all, workflow] = await Promise.all([opportunitiesForScan(scanId), getWorkflowCountsByCheck(scanId)]);
-  const withWorkflow = all.map((o) => ({ ...o, workflow: workflow.get(o.checkKey) ?? {}, ignoredFindings: workflow.get(o.checkKey)?.ignored ?? 0 }));
+  const withWorkflow = await opportunitiesWithWorkflow(scanId);
   return opts.includeIgnored ? withWorkflow : withWorkflow.filter((o) => isActionable(o, o.ignoredFindings));
 }
+
+/** Cached per request: one screen can ask for the actionable list, the ignored list and a summary. */
+const opportunitiesWithWorkflow = cache(async (scanId: number) => {
+  const [all, workflow] = await Promise.all([opportunitiesForScan(scanId), getWorkflowCountsByCheck(scanId)]);
+  return all.map((o) => ({ ...o, workflow: workflow.get(o.checkKey) ?? {}, ignoredFindings: workflow.get(o.checkKey)?.ignored ?? 0 }));
+});
 
 async function opportunitiesForScan(scanId: number): Promise<Opportunity[]> {
   const rows = await db

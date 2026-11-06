@@ -1,27 +1,44 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { cache } from "react";
+import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { crawlerWorkers, dealerships, emailReports, jobs, seoScans, systemLogs, userDealerships, users } from "@/lib/db/schema";
 import { STALE_CRAWLER_HOURS } from "@/lib/jobs/maintenance";
 import { getSettings } from "@/lib/settings";
+import { omitColumns } from "./columns";
+
+/** What the job tables show; payloads and results can be large and no screen reads them. */
+const jobColumns = {
+  id: jobs.id,
+  type: jobs.type,
+  status: jobs.status,
+  attempts: jobs.attempts,
+  maxAttempts: jobs.maxAttempts,
+  runAfter: jobs.runAfter,
+  region: jobs.region,
+  lastError: jobs.lastError,
+  completedAt: jobs.completedAt,
+};
 
 export async function getJobOverview() {
-  const counts = await db.select({ status: jobs.status, n: sql<number>`count(*)::int` }).from(jobs).groupBy(jobs.status);
-  const active = await db
-    .select({ job: jobs, dealershipName: dealerships.name })
+  const [counts, active, failed, [lastRun]] = await Promise.all([
+    db.select({ status: jobs.status, n: sql<number>`count(*)::int` }).from(jobs).groupBy(jobs.status),
+    db
+    .select({ job: jobColumns, dealershipName: dealerships.name })
     .from(jobs)
     .leftJoin(dealerships, eq(dealerships.id, jobs.dealershipId))
     .where(inArray(jobs.status, ["queued", "running"]))
     .orderBy(jobs.priority, jobs.runAfter)
-    .limit(50);
-  const failed = await db
-    .select({ job: jobs, dealershipName: dealerships.name })
+    .limit(50),
+    db
+    .select({ job: jobColumns, dealershipName: dealerships.name })
     .from(jobs)
     .leftJoin(dealerships, eq(dealerships.id, jobs.dealershipId))
     .where(eq(jobs.status, "failed"))
     .orderBy(desc(jobs.completedAt))
-    .limit(25);
-  const [lastRun] = await db.select({ at: sql<Date | null>`max(${jobs.startedAt})` }).from(jobs);
+    .limit(25),
+    db.select({ at: sql<Date | null>`max(${jobs.startedAt})` }).from(jobs),
+  ]);
   const lastJobStartedAt = lastRun?.at ? new Date(lastRun.at) : null;
   // No job has started for 3 hours → the scheduler is probably not being called.
   const generatedAt = Date.now();
@@ -46,7 +63,7 @@ export async function getCrawlers() {
 
 export async function getRecentScanFailures() {
   return db
-    .select({ scan: seoScans, dealershipName: dealerships.name })
+    .select({ scan: { id: seoScans.id, dealershipId: seoScans.dealershipId, errorMessage: seoScans.errorMessage, createdAt: seoScans.createdAt }, dealershipName: dealerships.name })
     .from(seoScans)
     .innerJoin(dealerships, eq(dealerships.id, seoScans.dealershipId))
     .where(eq(seoScans.status, "failed"))
@@ -74,9 +91,19 @@ export type EmailOutcome = "accepted" | "failed" | "retrying" | "skipped" | "que
  * so a live job whose key prefixes this row's key is that row's next attempt.
  */
 export async function getRecentEmails(limit = 50, status?: EmailOutcome) {
+  const mapped = await recentEmailWindow();
+  return status ? mapped.filter((m) => m.outcome === status).slice(0, limit) : mapped.slice(0, limit);
+}
+
+/** Emails the page has outcome counts for. The list and the counts read the same rows, once per request. */
+const RECENT_EMAIL_WINDOW = 400;
+// The stored payload can hold a whole digest; the log shows who, what and how it went.
+const emailColumns = omitColumns(getTableColumns(emailReports), "payload");
+
+const recentEmailWindow = cache(async () => {
   const rows = await db
     .select({
-      email: emailReports,
+      email: emailColumns,
       retryPending: sql<boolean>`exists (
         select 1 from ${jobs} j
         where j.status in ('queued', 'running')
@@ -85,9 +112,9 @@ export async function getRecentEmails(limit = 50, status?: EmailOutcome) {
     })
     .from(emailReports)
     .orderBy(desc(emailReports.createdAt))
-    .limit(status ? 400 : limit);
+    .limit(RECENT_EMAIL_WINDOW);
 
-  const mapped = rows.map((r) => ({
+  return rows.map((r) => ({
     ...r.email,
     outcome: (r.email.status === "sent"
       ? "accepted"
@@ -99,12 +126,11 @@ export async function getRecentEmails(limit = 50, status?: EmailOutcome) {
             ? "retrying"
             : "failed") as EmailOutcome,
   }));
-  return status ? mapped.filter((m) => m.outcome === status).slice(0, limit) : mapped;
-}
+});
 
 /** Counts for the delivery summary, so a failure is visible without scrolling. */
 export async function getEmailOutcomeCounts(): Promise<Record<EmailOutcome, number>> {
-  const all = await getRecentEmails(400);
+  const all = await recentEmailWindow();
   const out: Record<EmailOutcome, number> = { accepted: 0, failed: 0, retrying: 0, skipped: 0, queued: 0 };
   for (const e of all) out[e.outcome]++;
   return out;

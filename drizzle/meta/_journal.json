@@ -141,6 +141,13 @@
       "when": 1792412528325,
       "tag": "0019_stage5_upgrades",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793970343321,
+      "tag": "0020_perf_indexes",
+      "breakpoints": true
     }
   ]
 }

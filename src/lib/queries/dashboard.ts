@@ -1,10 +1,10 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import type { ScanChangeSummary } from "@/lib/db/schema";
 import type { DealerStatus } from "@/components/ui";
 import { nextScheduledScanAt } from "@/lib/jobs/scheduler";
 import { presentedScanOrderSql } from "@/lib/seo/presented-scan";
+import { carryScoresForward } from "./portfolio-trend";
 import { dealershipSqlScope } from "./scope";
 
 export interface DealerRow {
@@ -48,7 +48,7 @@ type RawRow = {
   warning_count: number | null;
   completed_at: Date | string | null;
   site_available: boolean | null;
-  change_summary: ScanChangeSummary | null;
+  score_delta: number | null;
   blocked_reason: string | null;
   audit_mode: string | null;
   outcome: string | null;
@@ -83,13 +83,15 @@ export async function getDealerRows(allowed: number[] | null = null): Promise<De
   const rows = await db.execute<RawRow>(sql`
     select d.id, d.name, d.brand, d.city, d.state, d.website_url, d.seo_enabled, d.news_enabled, d.is_active,
       d.website_platform, d.detected_platform, d.last_successful_scan_at,
-      ls.score, ls.critical_count, ls.warning_count, ls.completed_at, ls.site_available, ls.change_summary, ls.blocked_reason, ls.audit_mode, ls.outcome,
+      ls.score, ls.critical_count, ls.warning_count, ls.completed_at, ls.site_available, ls.outcome,
+      (ls.change_summary->>'scoreDelta')::int as score_delta, ls.site_checks->>'blockedReason' as blocked_reason, ls.site_checks->>'auditMode' as audit_mode,
       ls.pages_scanned, ls.pages_protected,
       act.status as active_status, lst.status as last_status, lst.error_message as last_error,
       coalesce(nn.n, 0)::int as new_news, nb.completed_at as newer_blocked_at
     from dealerships d
     left join lateral (
-      select score, critical_count, warning_count, completed_at, site_available, change_summary, site_checks->>'blockedReason' as blocked_reason, site_checks->>'auditMode' as audit_mode, outcome,
+      -- The JSON is read outside this subquery, from the one row chosen, not for every scan the sort looks at.
+      select score, critical_count, warning_count, completed_at, site_available, change_summary, site_checks, outcome,
         pages_scanned, pages_blocked + pages_not_evaluated as pages_protected
       from seo_scans s where s.dealership_id = d.id and s.status = 'completed'
       order by ${presentedScanOrderSql} limit 1
@@ -129,7 +131,7 @@ export async function getDealerRows(allowed: number[] | null = null): Promise<De
       newsEnabled: r.news_enabled,
       isActive: r.is_active,
       score: r.site_available === false ? null : r.score,
-      scoreDelta: r.change_summary?.scoreDelta ?? null,
+      scoreDelta: r.score_delta === null ? null : Number(r.score_delta),
       critical: r.critical_count ?? 0,
       warnings: r.warning_count ?? 0,
       newNews: Number(r.new_news),
@@ -150,15 +152,16 @@ export async function getDashboardSummary(rows: DealerRow[], allowed: number[] |
   // Each figure joins dealerships so it covers the same population as the cards
   // above it: active dealerships this user may see, and no others.
   const scope = dealershipSqlScope(allowed, "d.id");
-  const [agg] = (await db.execute<{ last_scan: Date | string | null; failures: number; new_news: number }>(sql`
-    select
-      (select max(s.completed_at) from seo_scans s join dealerships d on d.id = s.dealership_id
-        where s.status = 'completed' and d.is_active and ${scope}) as last_scan,
-      (select count(*)::int from seo_scans s join dealerships d on d.id = s.dealership_id
-        where s.status = 'failed' and s.created_at > now() - interval '7 days' and d.is_active and ${scope}) as failures,
-      (select count(*)::int from news_articles n join dealerships d on d.id = n.dealership_id
-        where n.relevance = 'new' and n.scope = 'dealership' and d.is_active and ${scope}) as new_news
-  `)) as unknown as Array<{ last_scan: Date | string | null; failures: number; new_news: number }>;
+  const [[agg], nextScan] = await Promise.all([
+    db.execute<{ last_scan: Date | string | null; failures: number }>(sql`
+      select
+        (select max(s.completed_at) from seo_scans s join dealerships d on d.id = s.dealership_id
+          where s.status = 'completed' and d.is_active and ${scope}) as last_scan,
+        (select count(*)::int from seo_scans s join dealerships d on d.id = s.dealership_id
+          where s.status = 'failed' and s.created_at > now() - interval '7 days' and d.is_active and ${scope}) as failures
+    `) as unknown as Promise<Array<{ last_scan: Date | string | null; failures: number }>>,
+    nextScheduledScanAt(),
+  ]);
   return {
     generatedAt: Date.now(),
     totalDealerships: active.length,
@@ -166,9 +169,9 @@ export async function getDashboardSummary(rows: DealerRow[], allowed: number[] |
     averageScore: scored.length ? Math.round(scored.reduce((a, r) => a + (r.score ?? 0), 0) / scored.length) : null,
     critical: active.reduce((a, r) => a + r.critical, 0),
     warnings: active.reduce((a, r) => a + r.warnings, 0),
-    newNews: Number(agg?.new_news ?? 0),
+    newNews: active.reduce((a, r) => a + r.newNews, 0),
     lastScan: agg?.last_scan ? new Date(agg.last_scan) : null,
-    nextScan: await nextScheduledScanAt(),
+    nextScan,
     scanFailures: Number(agg?.failures ?? 0),
     sitesDown: active.filter((r) => r.status === "down").length,
     accessRestricted: active.filter((r) => r.status === "blocked" || r.status === "limited" || r.status === "partially_blocked").length,
@@ -182,24 +185,33 @@ export async function getDashboardSummary(rows: DealerRow[], allowed: number[] |
  */
 export async function getPortfolioTrend(allowed: number[] | null, days: number, timeZone: string): Promise<Array<{ day: string; score: number; dealerships: number }>> {
   const scope = dealershipSqlScope(allowed, "d.id");
+  // One pass over the window plus one "carried in" scan per dealership, rather than a lookup per day
+  // per dealership (90 x D lateral joins). The carrying forward happens in `carryScoresForward`.
   const rows = (await db.execute(sql`
-    with day as (
-      select generate_series((now() at time zone ${timeZone})::date - (${days}::int - 1), (now() at time zone ${timeZone})::date, interval '1 day')::date as d
+    with bounds as (
+      select (now() at time zone ${timeZone})::date as last_day, (now() at time zone ${timeZone})::date - (${days}::int - 1) as first_day
     ), dealer as (
       select d.id from dealerships d where d.is_active and ${scope}
+    ), usable as (
+      select s.dealership_id, s.score, s.completed_at, (s.completed_at at time zone ${timeZone})::date as day
+      from seo_scans s join dealer on dealer.id = s.dealership_id
+      where s.status = 'completed' and s.score is not null and s.outcome is distinct from 'blocked'
     )
-    select to_char(day.d, 'YYYY-MM-DD') as day, round(avg(x.score))::int as score, count(x.score)::int as dealerships
-    from day cross join dealer
+    select to_char(b.first_day, 'YYYY-MM-DD') as first_day, to_char(b.last_day, 'YYYY-MM-DD') as last_day, x.dealership_id, to_char(x.day, 'YYYY-MM-DD') as day, x.score
+    from bounds b
     left join lateral (
-      select s.score from seo_scans s
-      where s.dealership_id = dealer.id and s.status = 'completed' and s.score is not null and s.outcome is distinct from 'blocked'
-        and (s.completed_at at time zone ${timeZone})::date <= day.d
-      order by s.completed_at desc limit 1
+      select distinct on (u.dealership_id, greatest(u.day, b.first_day)) u.dealership_id, greatest(u.day, b.first_day) as day, u.score
+      from usable u where u.day <= b.last_day
+      order by u.dealership_id, greatest(u.day, b.first_day), u.completed_at desc
     ) x on true
-    group by day.d having count(x.score) > 0
-    order by day.d
-  `)) as unknown as Array<{ day: string; score: number; dealerships: number }>;
-  return rows.map((r) => ({ day: r.day, score: Number(r.score), dealerships: Number(r.dealerships) }));
+  `)) as unknown as Array<{ first_day: string; last_day: string; dealership_id: number | null; day: string | null; score: number | null }>;
+  const [first] = rows;
+  if (!first) return [];
+  return carryScoresForward(
+    first.first_day,
+    first.last_day,
+    rows.flatMap((r) => (r.dealership_id === null ? [] : [{ dealershipId: Number(r.dealership_id), day: r.day!, score: Number(r.score) }])),
+  );
 }
 
 /**

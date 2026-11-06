@@ -1,5 +1,6 @@
+import { Suspense, type ComponentProps } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { notFound } from "next/navigation";
 import { CheckCircle2, FileText, Loader2, MinusCircle, Pencil, RefreshCw, XCircle } from "lucide-react";
 import { ScanAutoRefresh } from "@/components/client/scan-auto-refresh";
@@ -54,8 +55,10 @@ import { ArticleList } from "@/components/article-list";
 import { SearchPerformanceTab } from "@/components/integrations/search-tab";
 import { loadSearchTab, searchTabAvailable } from "@/lib/integrations/queries";
 import { displayUrl, fmtDate, fmtDateTime, fmtDuration, fmtRelative } from "@/components/format";
+import { scanPhaseText } from "@/lib/seo/scan-phase";
+import { Shell, SkelCard } from "@/components/ui/skeleton";
 // Product track: issue workflow, monthly history, branding.
-import { parseWorkflowFilter } from "@/lib/issues/workflow";
+import { isActionable, parseWorkflowFilter } from "@/lib/issues/workflow";
 import { getAssignableUsers, getIssueStates } from "@/lib/issues/states";
 import { IssueStatusBadge, IssueWorkflowEditor, WorkflowScoreNote } from "@/components/issue-workflow";
 import { MonthlyHistory } from "@/components/monthly-history";
@@ -197,7 +200,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
           startedAt={active.startedAt ?? active.createdAt}
           updatedAt={active.updatedAt ?? active.createdAt}
           stalled={active.stalled}
-          crawlPhase={active.crawlState?.phase ?? null}
+          crawlPhase={active.crawlPhase}
         />
       )}
       {latest && scanSiteKey(latest) !== siteKey(dealer.websiteUrl) && (
@@ -254,6 +257,79 @@ export default async function DealershipPage({ params, searchParams }: { params:
         ].filter((t) => !isClient(user) || ["overview", "issues", "news", "reports", ...(searchTab ? ["search"] : [])].includes(t.key))}
       />
 
+      {/* The header and tabs are on screen while the tab's own data loads. Keyed by tab, so a new tab
+          shows its skeleton, while a filter inside a tab keeps the current results until the new ones arrive. */}
+      <Suspense key={tab} fallback={<TabSkeleton />}>
+        <TabBody
+          tab={tab}
+          id={id}
+          dealer={dealer}
+          user={user}
+          sp={sp}
+          href={href}
+          base={base}
+          tz={tz}
+          latest={latest}
+          active={active}
+          status={status}
+          clientView={clientView}
+          issueCounts={issueCounts}
+          newsCounts={newsCounts}
+        />
+      </Suspense>
+    </>
+  );
+}
+
+function TabSkeleton() {
+  return (
+    <Shell>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <SkelCard className="h-48" />
+        <SkelCard className="h-48 lg:col-span-2" />
+      </div>
+      <SkelCard className="mt-4 h-64" />
+    </Shell>
+  );
+}
+
+async function TabBody({
+  tab,
+  id,
+  dealer,
+  user,
+  sp,
+  href,
+  base,
+  tz,
+  latest,
+  active,
+  status,
+  clientView,
+  issueCounts,
+  newsCounts,
+}: {
+  tab: string;
+  id: number;
+  dealer: NonNullable<Awaited<ReturnType<typeof getDealership>>>;
+  user: Awaited<ReturnType<typeof requireDealershipAccess>>;
+  sp: SP;
+  href: (next: SP) => string;
+  base: string;
+  tz: string;
+  latest: Awaited<ReturnType<typeof getLatestScans>>["latest"];
+  active: Awaited<ReturnType<typeof getLatestScans>>["active"];
+  status: ComponentProps<typeof Overview>["status"];
+  clientView: boolean;
+  issueCounts: Awaited<ReturnType<typeof getIssueCounts>> | null;
+  newsCounts: Awaited<ReturnType<typeof getNewsCounts>>;
+}) {
+  // Started here rather than inline below, so they run alongside the tab's other queries instead of after them.
+  const speed = tab === "overview" ? getSpeedData(id) : null;
+  const opportunities = tab === "opportunities" && latest ? getOpportunities(latest.id, { includeIgnored: true }) : null;
+  const assignees = tab === "opportunities" && latest && user.role === "admin" ? getAssignableUsers() : null;
+  return (
+    <>
       {tab === "overview" &&
         // A dealership login always gets the client view. Staff get their own,
         // and can switch to the client view to demonstrate it without needing a
@@ -263,7 +339,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
             data={(await getClientDashboard(id))!}
             tz={tz}
             showHeader={false}
-            speed={await getSpeedData(id)}
+            speed={await speed!}
             canScan={dealer.seoEnabled && !active}
             scanAction={
               <form action={scanNowAction}>
@@ -275,19 +351,19 @@ export default async function DealershipPage({ params, searchParams }: { params:
             }
           />
         ) : (
-          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} speed={await getSpeedData(id)} />
+          <Overview latest={latest} status={status} tz={tz} issueCounts={issueCounts} newsCounts={newsCounts} href={href} speed={speed!} />
         ))}
       {tab === "opportunities" &&
         (latest ? (
           <OpportunitiesView
-            opportunities={await getOpportunities(latest.id)}
+            opportunities={(await opportunities!).filter((o) => isActionable(o, o.ignoredFindings ?? 0))}
             scanCompletedAt={latest.completedAt}
             detailsRetained={latest.detailsRetained}
             storedIssueTotal={latest.criticalCount + latest.warningCount}
             tz={tz}
             base={base}
-            ignored={(await getOpportunities(latest.id, { includeIgnored: true })).filter((o) => (o.ignoredFindings ?? 0) >= o.findings)}
-            workflowEditor={user.role === "admin" ? { dealershipId: id, assignees: await getAssignableUsers() } : undefined}
+            ignored={(await opportunities!).filter((o) => (o.ignoredFindings ?? 0) >= o.findings)}
+            workflowEditor={user.role === "admin" ? { dealershipId: id, assignees: (await assignees)! } : undefined}
           />
         ) : (
           <NoScanYet />
@@ -345,16 +421,7 @@ async function ActiveScanBanner({
   stalled: boolean;
 }) {
   const progress = await getScanProgress(scanId);
-  const phase =
-    status === "queued"
-      ? "waiting for the crawler to start"
-      : status === "finalizing"
-        ? "calculating results"
-        : crawlPhase === "links"
-          ? `checking links (${progress.done} pages crawled)`
-          : progress.total === 0
-            ? "loading the homepage"
-            : `${progress.done} of ${progress.total} pages checked`;
+  const phase = scanPhaseText(status, crawlPhase, progress);
 
   return (
     <div
@@ -366,15 +433,14 @@ async function ActiveScanBanner({
     >
       {stalled ? (
         <span>
-          <strong>Scan stalled</strong> — {phase}, but nothing has made progress since {fmtRelative(updatedAt)}. The job queue is not being processed; check that the scan worker or the cron schedule is running. It will be marked failed automatically six hours after it started.
+          <strong>Scan stalled</strong> — <ScanAutoRefresh dealershipId={dealershipId} initialText={phase} stalled />, but nothing has made progress since {fmtRelative(updatedAt)}. The job queue is not being processed; check that the scan worker or the cron schedule is running. It will be marked failed automatically six hours after it started.
         </span>
       ) : (
         <span>
           <Loader2 aria-hidden className="mr-1.5 inline h-4 w-4 animate-spin align-[-3px]" />
-          <strong>Scan in progress</strong> — {phase} · started {fmtRelative(startedAt)}. This updates automatically; results appear when it finishes.
+          <strong>Scan in progress</strong> — <ScanAutoRefresh dealershipId={dealershipId} initialText={phase} stalled={false} /> · started {fmtRelative(startedAt)}. This updates automatically; results appear when it finishes.
         </span>
       )}
-      <ScanAutoRefresh />
       {isAdmin && (
         <form action={cancelScanAction}>
           <input type="hidden" name="id" value={dealershipId} />
@@ -397,10 +463,10 @@ async function Overview({
   issueCounts,
   newsCounts,
   href,
-  speed,
+  speed: speedData,
 }: {
   latest: Awaited<ReturnType<typeof getLatestScans>>["latest"];
-  speed: SpeedData;
+  speed: Promise<SpeedData>;
   status: string | null;
   tz: string;
   issueCounts: Awaited<ReturnType<typeof getIssueCounts>> | null;
@@ -408,8 +474,7 @@ async function Overview({
   href: (sp: SP) => string;
 }) {
   if (!latest) return <NoScanYet />;
-  const checks = await getChecks(latest.id);
-  const renderedCount = await getRenderedPageCount(latest.id);
+  const [checks, renderedCount, speed] = await Promise.all([getChecks(latest.id), getRenderedPageCount(latest.id), speedData]);
   const failing = checks.filter((c) => c.status === "fail" || c.status === "warn").slice(0, 8);
   const passed = checks.filter((c) => c.status === "pass");
   const sc = latest.siteChecks;
@@ -697,13 +762,14 @@ async function IssuesTab({
   const { rows, total } = await getIssues(scanId, {
     severity: sp.severity,
     category: sp.category,
+    checkKey: sp.check,
     pageId: sp.page ? Number(sp.page) : undefined,
     onlyNew: sp.new === "1",
     workflow: parseWorkflowFilter(sp.wf),
     page,
     pageSize,
   });
-  const filtered = sp.check ? rows.filter((r) => r.checkKey === sp.check) : rows;
+  const filtered = rows;
   const hasFilter = Boolean(sp.severity || sp.category || sp.page || sp.check || sp.new === "1" || sp.wf);
   const keep = { tab: "issues", severity: sp.severity, category: sp.category, page: sp.page, new: sp.new, check: sp.check, wf: sp.wf };
   const [states, assignees] = await Promise.all([getIssueStates(dealershipId, filtered.map((r) => r.fingerprint)), canEdit ? getAssignableUsers() : Promise.resolve([])]);
@@ -724,7 +790,7 @@ async function IssuesTab({
           </Link>
         </Notice>
       )}
-      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by severity">
+      <div className="chip-row mb-4" role="group" aria-label="Filter by severity">
         {chip(`All (${counts.bySeverity.critical + counts.bySeverity.warning + counts.bySeverity.info})`, { severity: undefined }, !sp.severity)}
         {chip(`Critical (${counts.bySeverity.critical})`, { severity: "critical" }, sp.severity === "critical")}
         {chip(`Warnings (${counts.bySeverity.warning})`, { severity: "warning" }, sp.severity === "warning")}
@@ -732,11 +798,11 @@ async function IssuesTab({
         <span className="mx-1 hidden w-px bg-slate-200 sm:block" />
         {chip("New since last scan", { new: sp.new === "1" ? undefined : "1" }, sp.new === "1")}
       </div>
-      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by category">
+      <div className="chip-row mb-4" role="group" aria-label="Filter by category">
         {chip("All categories", { category: undefined }, !sp.category)}
         {Object.entries(CATEGORIES).map(([k, v]) => (counts.byCategory[k] ? <span key={k}>{chip(`${v.label} (${counts.byCategory[k]})`, { category: k }, sp.category === k)}</span> : null))}
       </div>
-      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+      <div className="chip-row mb-2" role="group" aria-label="Filter by status">
         {chip("Any status", { wf: undefined }, !sp.wf)}
         {chip("Open", { wf: "open" }, sp.wf === "open")}
         {chip("In progress", { wf: "in_progress" }, sp.wf === "in_progress")}
@@ -766,7 +832,7 @@ async function IssuesTab({
           <EmptyState title="No issues match these filters" description="Try a different severity or category." />
         )
       ) : (
-        <TableWrap caption="SEO issues found in the latest scan">
+        <TableWrap caption="SEO issues found in the latest scan" className="min-w-[56rem]">
           <thead>
             <tr>
               <th scope="col">Priority</th>
@@ -779,7 +845,7 @@ async function IssuesTab({
           </thead>
           <tbody>
             {filtered.map((i) => {
-              const target = typeof i.details?.target === "string" ? i.details.target : null;
+              const target = i.target;
               const state = states.get(i.fingerprint);
               return (
                 // Ignored issues are de-emphasised, never hidden: they still count in the score.
@@ -872,7 +938,7 @@ async function PagesTab({ scanId, sp, href }: { scanId: number; sp: SP; href: (s
       {rows.length === 0 ? (
         <EmptyState title="No pages match this filter" />
       ) : (
-        <TableWrap caption="Pages analysed in the latest scan">
+        <TableWrap caption="Pages analysed in the latest scan" className="min-w-[64rem]">
           <thead>
             <tr>
               <th scope="col">URL</th>
@@ -951,7 +1017,7 @@ async function ProtectedTab({ scanId, jobStatus, tz }: { scanId: number; jobStat
       <Notice tone="warning">
         <strong>Protected / Unable to analyze</strong> — The website&apos;s security (for example Cloudflare) served a challenge or refused the monitor for {rows.length} page{rows.length === 1 ? "" : "s"} in the latest scan ({jobStatus}). These pages were not analyzed and are <strong>not</strong> counted as SEO problems. The monitor never tries to get around website security. To include them, ask the website provider to allow-list the <code>A3SEOMonitor</code> crawler.
       </Notice>
-      <TableWrap caption="Pages the website's security prevented the monitor from analyzing">
+      <TableWrap caption="Pages the website's security prevented the monitor from analyzing" className="min-w-[44rem]">
         <thead>
           <tr>
             <th scope="col">URL</th>
@@ -991,7 +1057,7 @@ async function ProtectedTab({ scanId, jobStatus, tz }: { scanId: number; jobStat
 /* ─────────────────────────────── Reports ─────────────────────────────── */
 
 async function ReportsTab({ dealerId, sp, href, tz, isAdmin, hasScan }: { dealerId: number; sp: SP; href: (sp: SP) => string; tz: string; isAdmin: boolean; hasScan: boolean }) {
-  const [list, used] = await Promise.all([getReports(dealerId), aiReportsUsedThisMonth()]);
+  const [list, used] = await Promise.all([getReports(dealerId), aiReportsConfigured() ? aiReportsUsedThisMonth() : 0]);
   const selectedId = sp.report ? Number(sp.report) : list.find((r) => r.status === "completed")?.id;
   const selected = selectedId ? await getReport(dealerId, selectedId) : null;
   const limit = env().AI_REPORTS_MONTHLY_LIMIT;
@@ -1061,8 +1127,9 @@ async function NewsTab({ dealerId, sp, href, tz, counts, newsEnabled }: { dealer
   const status = sp.status ?? "new";
   const scope = parseNewsScope(sp.scope) === "brand" ? "brand" : "dealership";
   const page = Math.max(1, Number(sp.p) || 1);
+  const settingsRead = getSettings();
   const { rows, total } = await getNews({ dealershipId: dealerId, status: status === "all" ? undefined : status, scope, page, pageSize: 25 });
-  const settings = await getSettings();
+  const settings = await settingsRead;
   const pill = (active: boolean) => cn("rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset", active ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50");
   const chip = (label: string, s: string) => (
     <Link href={href({ tab: "news", scope, status: s })} aria-current={status === s ? "true" : undefined} className={pill(status === s)}>
@@ -1179,7 +1246,7 @@ async function HistoryTab({ dealerId, sp, href, tz, currentSite }: { dealerId: n
         </Card>
       )}
 
-      <TableWrap caption="Previous scans">
+      <TableWrap caption="Previous scans" className="min-w-[48rem]">
         <thead>
           <tr>
             <th scope="col">Date</th>

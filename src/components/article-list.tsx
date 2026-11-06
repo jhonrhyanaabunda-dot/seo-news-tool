@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { Building2, CalendarClock, ExternalLink as ExternalIcon, Newspaper } from "lucide-react";
 import type { getNews } from "@/lib/queries/news";
 import { topicLabel } from "@/lib/news/relevance";

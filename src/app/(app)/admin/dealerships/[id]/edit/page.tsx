@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { notFound } from "next/navigation";
 import { X } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/guards";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { gscConfig, placesConfigured } from "@/lib/integrations/config";
 import { getIntegrationOverview } from "@/lib/integrations/queries";
 import type { DealershipIntegration } from "@/lib/db/schema";

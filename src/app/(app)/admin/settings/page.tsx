@@ -61,21 +61,21 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 Send a test email to
               </label>
               <input id="to" name="to" type="email" defaultValue={user.email} className="input" />
-              <SubmitButton className="btn" pendingText="Sending…">
+              <SubmitButton className="btn !h-auto min-h-9 max-w-full !whitespace-normal py-1.5" pendingText="Sending…">
                 Send test email
               </SubmitButton>
             </form>
             <form action={sendNewsletterPreviewAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
               <input type="hidden" name="to" value={user.email} />
               <p className="text-sm text-slate-600">See this week’s newsletter now, exactly as recipients will get it.</p>
-              <SubmitButton className="btn" pendingText="Sending…">
+              <SubmitButton className="btn !h-auto min-h-9 max-w-full !whitespace-normal py-1.5" pendingText="Sending…">
                 Send newsletter preview to me
               </SubmitButton>
             </form>
             <form action={sendMonthlyReportPreviewAction} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
               <input type="hidden" name="to" value={user.email} />
               <p className="text-sm text-slate-600">See the monthly SEO report email, built from the latest generated report, before switching it on.</p>
-              <SubmitButton className="btn" pendingText="Sending…">
+              <SubmitButton className="btn !h-auto min-h-9 max-w-full !whitespace-normal py-1.5" pendingText="Sending…">
                 Send monthly report preview to me
               </SubmitButton>
             </form>

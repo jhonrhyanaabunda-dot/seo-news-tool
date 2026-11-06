@@ -42,13 +42,13 @@ body {
 @layer components {
   /* Buttons: one height (36px), one radius, three intents. */
   .btn {
-    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-[var(--shadow-card)] transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-[var(--shadow-card)] transition-[color,background-color,border-color,transform] duration-100 active:scale-[0.98] hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-primary {
-    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-brand-700 bg-brand-600 px-3.5 text-sm font-medium text-white shadow-[var(--shadow-card)] transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-brand-700 bg-brand-600 px-3.5 text-sm font-medium text-white shadow-[var(--shadow-card)] transition-[color,background-color,border-color,transform] duration-100 active:scale-[0.98] hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-danger {
-    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-red-200 bg-white px-3.5 text-sm font-medium text-red-700 shadow-[var(--shadow-card)] transition-colors hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-red-200 bg-white px-3.5 text-sm font-medium text-red-700 shadow-[var(--shadow-card)] transition-[color,background-color,border-color,transform] duration-100 active:scale-[0.98] hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-sm {
     @apply h-7 px-2.5 text-xs;
@@ -94,6 +94,17 @@ body {
     content: "·";
     margin-right: 0.75rem;
     color: var(--color-slate-300);
+  }
+  /* Filter chips: one scrolling line on a phone, wrapped from small tablets up. */
+  .chip-row {
+    @apply flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0;
+    scrollbar-width: none;
+  }
+  .chip-row > * {
+    @apply shrink-0;
+  }
+  .chip-row > span:has(> a) {
+    @apply flex;
   }
   /* Small muted heading for a group of fields or figures. */
   .eyebrow {
@@ -240,4 +251,58 @@ body {
   .doc-footer { break-inside: avoid; }
   /* Tints must survive the browser's "background graphics" default. */
   .doc-opp-n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ───────────────────────── Motion ─────────────────────────
+   Short, opacity-led, and only on compositor-friendly properties, so it can never
+   be the reason a page feels slow. Removed entirely for anyone who asks for less. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.page-enter {
+  animation: page-enter 140ms ease-out;
+}
+
+/* Delayed: a screen that loads quickly never flashes a skeleton at all. */
+.skeleton-enter {
+  animation:
+    fade-in 120ms ease-out 80ms backwards,
+    pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* The phone navigation scrolls sideways; its scrollbar only takes up room. */
+nav[aria-label="Main"] ul,
+nav[aria-label="Report sections"] ul {
+  scrollbar-width: none;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .skeleton-enter,
+  .animate-pulse {
+    animation: none;
+  }
+  .animate-spin {
+    animation-duration: 2s;
+  }
+  * {
+    scroll-behavior: auto !important;
+    transition-duration: 0ms !important;
+  }
 }

@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
+import { HoverPrefetchLink } from "@/components/client/hover-prefetch-link";
 import { ScoreHistoryChart } from "@/components/charts";
 import { Card, EmptyState, cn } from "@/components/ui";
 
@@ -62,9 +63,9 @@ export function PortfolioTrends({
           <ul className="divide-y divide-slate-100">
             {movers.slice(0, 6).map((m) => (
               <li key={m.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                <Link href={`/dealerships/${m.id}`} className="min-w-0 truncate text-sm font-medium text-slate-800 hover:text-brand-700 hover:underline">
+                <HoverPrefetchLink href={`/dealerships/${m.id}`} className="min-w-0 truncate text-sm font-medium text-slate-800 hover:text-brand-700 hover:underline">
                   {m.name}
-                </Link>
+                </HoverPrefetchLink>
                 <span className="flex shrink-0 items-baseline gap-2 tabular-nums">
                   <span className="text-xs text-slate-400">
                     {m.before} → {m.now}

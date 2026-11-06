@@ -41,7 +41,7 @@ export function SkelTable({ rows = 6, cols = 7 }: { rows?: number; cols?: number
 
 export function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div role="status" aria-live="polite" className="animate-pulse">
+    <div role="status" aria-live="polite" className="skeleton-enter animate-pulse">
       {children}
       <span className="sr-only">Loading…</span>
     </div>

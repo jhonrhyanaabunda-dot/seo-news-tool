@@ -18,7 +18,9 @@ export default async function DealershipLayout({ children, params }: { children:
   const { id } = await params;
   const dealershipId = Number(id);
   if (!Number.isInteger(dealershipId) || dealershipId <= 0) notFound();
-  await requireDealershipAccess(dealershipId);
-  if (!(await getDealership(dealershipId))) notFound();
+  // Read together, because each read is a network round trip. Access is still decided before anything
+  // is rendered: a refusal rejects this whole line, and the dealership it fetched goes no further.
+  const [, dealer] = await Promise.all([requireDealershipAccess(dealershipId), getDealership(dealershipId)]);
+  if (!dealer) notFound();
   return <>{children}</>;
 }

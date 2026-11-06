@@ -1,5 +1,6 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import clsx from "clsx";
+import { HoverPrefetchLink, LinkPending } from "@/components/client/hover-prefetch-link";
 import { CheckCircle2, CircleAlert, ExternalLink as ExternalIcon, Info, TriangleAlert } from "lucide-react";
 
 export { clsx as cn };
@@ -140,7 +141,7 @@ export function StatCard({ label, value, hint, tone = "neutral", href }: { label
     <div className={clsx("h-full rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-[var(--shadow-card)]", href && "transition-colors hover:border-slate-300 hover:bg-slate-50/60")}>
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <span aria-hidden className={clsx("h-2 w-2 shrink-0 rounded-full", dotClasses[tone])} />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0">{label}</span>
       </div>
       <div className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">{value}</div>
       {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
@@ -242,7 +243,7 @@ export function Tabs({ tabs, active }: { tabs: Array<{ key: string; label: strin
           const on = t.key === active;
           return (
             <li key={t.key}>
-              <Link
+              <HoverPrefetchLink
                 href={t.href}
                 aria-current={on ? "page" : undefined}
                 className={clsx(
@@ -254,7 +255,8 @@ export function Tabs({ tabs, active }: { tabs: Array<{ key: string; label: strin
                 {t.count !== undefined && t.count !== null && (
                   <span className={clsx("rounded-md px-1.5 py-px text-xs tabular-nums", on ? "bg-brand-50 text-brand-700" : "bg-slate-100 text-slate-500")}>{t.count}</span>
                 )}
-              </Link>
+                <LinkPending />
+              </HoverPrefetchLink>
             </li>
           );
         })}
@@ -272,18 +274,18 @@ export function Pagination({ page, totalPages, hrefFor }: { page: number; totalP
       </span>
       <div className="flex gap-2">
         {page > 1 ? (
-          <Link className="btn btn-sm" href={hrefFor(page - 1)}>
-            Previous
-          </Link>
+          <HoverPrefetchLink className="btn btn-sm" href={hrefFor(page - 1)}>
+            <LinkPending /> Previous
+          </HoverPrefetchLink>
         ) : (
           <span className="btn btn-sm pointer-events-none opacity-50" aria-disabled>
             Previous
           </span>
         )}
         {page < totalPages ? (
-          <Link className="btn btn-sm" href={hrefFor(page + 1)}>
-            Next
-          </Link>
+          <HoverPrefetchLink className="btn btn-sm" href={hrefFor(page + 1)}>
+            Next <LinkPending />
+          </HoverPrefetchLink>
         ) : (
           <span className="btn btn-sm pointer-events-none opacity-50" aria-disabled>
             Next
@@ -294,11 +296,11 @@ export function Pagination({ page, totalPages, hrefFor }: { page: number; totalP
   );
 }
 
-export function TableWrap({ children, caption }: { children: React.ReactNode; caption: string }) {
+export function TableWrap({ children, caption, className }: { children: React.ReactNode; caption: string; /** A minimum width, so a wide table scrolls inside its box on a phone instead of squeezing its columns. */ className?: string }) {
   return (
     // relative: screen-reader-only labels are absolutely positioned; without it they escape the scroll box and widen the page on phones.
     <div className="relative overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-[var(--shadow-card)]">
-      <table className="table-base">
+      <table className={clsx("table-base", className)}>
         <caption className="sr-only">{caption}</caption>
         {children}
       </table>

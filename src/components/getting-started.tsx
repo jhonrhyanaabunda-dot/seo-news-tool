@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { CircleCheckBig, CircleDashed } from "lucide-react";
 import { checklistComplete, type ChecklistItem } from "@/lib/onboarding/checklist";
 import { Card, cn } from "@/components/ui";

@@ -129,6 +129,10 @@ console.log("3. Dealership client: sees their dealership, nothing else");
   ck("client cannot open admin settings", new URL(page.url()).pathname !== "/admin/settings" || (admin?.status() ?? 200) >= 400, page.url());
   const other = await page.goto(`${BASE}/dealerships/999`);
   ck("another dealership is not found", other?.status() === 404, String(other?.status()));
+  const ownStatus = await ctx.request.get(`${BASE}/api/dealerships/1/scan-status`);
+  ck("client can read their own scan status", ownStatus.status() === 200 && (await ownStatus.json()).active === false, String(ownStatus.status()));
+  const otherStatus = await ctx.request.get(`${BASE}/api/dealerships/999/scan-status`);
+  ck("another dealership's scan status is not found", otherStatus.status() === 404, String(otherStatus.status()));
   await ctx.close();
 }
 

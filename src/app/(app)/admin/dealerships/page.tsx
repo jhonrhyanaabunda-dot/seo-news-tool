@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { Plus } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/guards";
 import { getDealerRows } from "@/lib/queries/dashboard";

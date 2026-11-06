@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { ArrowRight, CheckCircle2, CircleAlert, FileText, Info, TriangleAlert } from "lucide-react";
 import type { ClientDashboard } from "@/lib/queries/client-dashboard";
 import { scopeLabel, type Opportunity } from "@/lib/seo/opportunity";

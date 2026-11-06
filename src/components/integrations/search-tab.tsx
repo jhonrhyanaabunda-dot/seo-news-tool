@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { RefreshCw } from "lucide-react";
 import type { Dealership } from "@/lib/db/schema";
 import type { SearchTabData } from "@/lib/integrations/queries";

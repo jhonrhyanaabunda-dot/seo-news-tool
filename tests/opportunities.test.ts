@@ -127,7 +127,7 @@ test("resolved findings are not presented as open", () => {
   const src = read("src/lib/queries/client-opportunities.ts");
   assert.ok(!/resolved/i.test(src), "no resolved-issue source is mixed in");
   const page = read("src/app/(app)/dealerships/[id]/page.tsx");
-  assert.ok(/getOpportunities\(latest\.id\)/.test(page), "the page uses the latest completed scan");
+  assert.ok(/getOpportunities\(latest\.id[,)]/.test(page), "the page uses the latest completed scan");
 });
 
 test("a pruned scan is disclosed rather than shown as a clean site", () => {

@@ -25,8 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const user = await getCurrentUser();
   const n = Number(id);
   if (!user || !Number.isInteger(n) || !(await canAccessDealership(user, n))) return { title: "SEO report" };
-  const data = await getClientDashboard(n);
-  return { title: data ? `SEO report — ${data.dealership.name}` : "SEO report" };
+  const dealer = await getDealership(n);
+  return { title: dealer ? `SEO report — ${dealer.name}` : "SEO report" };
 }
 
 export default async function PrintReportPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ rt?: string }> }) {

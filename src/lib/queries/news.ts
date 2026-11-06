@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, gte, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { dealerships, newsArticles } from "@/lib/db/schema";
 import { allowedFilter } from "./scope";
@@ -29,37 +29,44 @@ function newsWhere(opts: NewsFilters): SQL | undefined {
   return where.length ? and(...where) : undefined;
 }
 
+/** What an article row shows, shared by the single list and the per-dealership feed. */
+const articleColumns = {
+  id: newsArticles.id,
+  title: newsArticles.title,
+  url: newsArticles.url,
+  originalUrl: newsArticles.originalUrl,
+  source: newsArticles.source,
+  provider: newsArticles.provider,
+  summary: newsArticles.summary,
+  publishedAt: newsArticles.publishedAt,
+  publishedPrecision: newsArticles.publishedPrecision,
+  detectedAt: newsArticles.detectedAt,
+  relevance: newsArticles.relevance,
+  relevanceScore: newsArticles.relevanceScore,
+  matchedKeywords: newsArticles.matchedKeywords,
+  topics: newsArticles.topics,
+  scope: newsArticles.scope,
+  sourceType: newsArticles.sourceType,
+  dealershipId: newsArticles.dealershipId,
+  dealershipName: dealerships.name,
+};
+
+/** Newest publication first; articles without a publication date sort by when they were found. */
+const articleOrder = [sql`coalesce(${newsArticles.publishedAt}, ${newsArticles.detectedAt}) desc`, desc(newsArticles.detectedAt), desc(newsArticles.id)];
+
 export async function getNews(opts: NewsFilters & { page: number; pageSize: number }) {
   const cond = newsWhere(opts);
-  const [{ total }] = await db.select({ total: count() }).from(newsArticles).where(cond);
-  const rows = await db
-    .select({
-      id: newsArticles.id,
-      title: newsArticles.title,
-      url: newsArticles.url,
-      originalUrl: newsArticles.originalUrl,
-      source: newsArticles.source,
-      provider: newsArticles.provider,
-      summary: newsArticles.summary,
-      publishedAt: newsArticles.publishedAt,
-      publishedPrecision: newsArticles.publishedPrecision,
-      detectedAt: newsArticles.detectedAt,
-      relevance: newsArticles.relevance,
-      relevanceScore: newsArticles.relevanceScore,
-      matchedKeywords: newsArticles.matchedKeywords,
-      topics: newsArticles.topics,
-      scope: newsArticles.scope,
-      sourceType: newsArticles.sourceType,
-      dealershipId: newsArticles.dealershipId,
-      dealershipName: dealerships.name,
-    })
-    .from(newsArticles)
-    .innerJoin(dealerships, eq(dealerships.id, newsArticles.dealershipId))
-    .where(cond)
-    // Newest publication first; articles without a publication date sort by when they were found.
-    .orderBy(sql`coalesce(${newsArticles.publishedAt}, ${newsArticles.detectedAt}) desc`, desc(newsArticles.detectedAt), desc(newsArticles.id))
-    .limit(opts.pageSize)
-    .offset((opts.page - 1) * opts.pageSize);
+  const [[{ total }], rows] = await Promise.all([
+    db.select({ total: count() }).from(newsArticles).where(cond),
+    db
+      .select(articleColumns)
+      .from(newsArticles)
+      .innerJoin(dealerships, eq(dealerships.id, newsArticles.dealershipId))
+      .where(cond)
+      .orderBy(...articleOrder)
+      .limit(opts.pageSize)
+      .offset((opts.page - 1) * opts.pageSize),
+  ]);
   return { rows, total };
 }
 
@@ -74,26 +81,38 @@ export async function getDealershipOptions(allowed: number[] | null = null) {
 /**
  * The news feed split by dealership: every dealership with its matching article
  * count and its newest `perDealership` articles, so each store's news reads as
- * its own section.
+ * its own section. One windowed query covers every dealership: this page used to
+ * run two queries per dealership, which at 40 dealerships was 87 queries queued
+ * on a two-connection pool.
  */
 export async function getNewsByDealership(opts: NewsFilters & { perDealership: number }) {
   const cond = newsWhere(opts);
-  const [dealers, counts] = await Promise.all([
+  const ranked = db
+    .select({ id: newsArticles.id, rank: sql<number>`row_number() over (partition by ${newsArticles.dealershipId} order by coalesce(${newsArticles.publishedAt}, ${newsArticles.detectedAt}) desc, ${newsArticles.detectedAt} desc, ${newsArticles.id} desc)`.as("rank") })
+    .from(newsArticles)
+    .where(cond)
+    .as("ranked");
+  const [dealers, counts, articles] = await Promise.all([
     db
       .select({ id: dealerships.id, name: dealerships.name, brand: dealerships.brand, city: dealerships.city, state: dealerships.state, isActive: dealerships.isActive, newsEnabled: dealerships.newsEnabled })
       .from(dealerships)
       .where(and(allowedFilter(opts.allowed, dealerships.id), opts.dealershipId ? eq(dealerships.id, opts.dealershipId) : undefined))
       .orderBy(asc(dealerships.name)),
     db.select({ dealershipId: newsArticles.dealershipId, total: count() }).from(newsArticles).where(cond).groupBy(newsArticles.dealershipId),
+    opts.perDealership
+      ? db
+          .select(articleColumns)
+          .from(newsArticles)
+          .innerJoin(ranked, eq(ranked.id, newsArticles.id))
+          .innerJoin(dealerships, eq(dealerships.id, newsArticles.dealershipId))
+          .where(lte(ranked.rank, opts.perDealership))
+          .orderBy(...articleOrder)
+      : Promise.resolve([]),
   ]);
   const totals = new Map(counts.map((c) => [c.dealershipId, Number(c.total)]));
-  return Promise.all(
-    dealers.map(async (d) => {
-      const total = totals.get(d.id) ?? 0;
-      const rows = total && opts.perDealership ? (await getNews({ ...opts, dealershipId: d.id, page: 1, pageSize: opts.perDealership })).rows : [];
-      return { dealer: d, total, rows };
-    }),
-  );
+  const byDealer = new Map<number, typeof articles>();
+  for (const a of articles) byDealer.set(a.dealershipId, [...(byDealer.get(a.dealershipId) ?? []), a]);
+  return dealers.map((d) => ({ dealer: d, total: totals.get(d.id) ?? 0, rows: byDealer.get(d.id) ?? [] }));
 }
 
 /**

@@ -1,8 +1,9 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { cache } from "react";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { alerts, dealerships, seoScans, type Dealership } from "@/lib/db/schema";
-import { presentedScanOrder } from "@/lib/seo/presented-scan";
+import { alerts, seoScans, type Dealership } from "@/lib/db/schema";
+import { getDealership, getLatestScans } from "./dealership";
 import { getOpportunities } from "./client-opportunities";
 import type { Opportunity } from "@/lib/seo/opportunity";
 
@@ -59,35 +60,12 @@ export interface ClientDashboard {
   latestReportId: number | null;
 }
 
-export async function getClientDashboard(dealershipId: number): Promise<ClientDashboard | null> {
-  const [dealership] = await db
-    .select({
-      id: dealerships.id,
-      name: dealerships.name,
-      websiteUrl: dealerships.websiteUrl,
-      brand: dealerships.brand,
-      city: dealerships.city,
-      state: dealerships.state,
-      isActive: dealerships.isActive,
-      seoEnabled: dealerships.seoEnabled,
-    })
-    .from(dealerships)
-    .where(eq(dealerships.id, dealershipId))
-    .limit(1);
-  if (!dealership) return null;
-
-  const [latest] = await db
-    .select()
-    .from(seoScans)
-    .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
-    .orderBy(...presentedScanOrder)
-    .limit(1);
-
-  const [active] = await db
-    .select({ id: seoScans.id, status: seoScans.status })
-    .from(seoScans)
-    .where(and(eq(seoScans.dealershipId, dealershipId), inArray(seoScans.status, ["queued", "crawling", "finalizing"])))
-    .limit(1);
+/** Cached per request, like the dealership and scans it starts from: the report page's title and body share it. */
+export const getClientDashboard = cache(async (dealershipId: number): Promise<ClientDashboard | null> => {
+  const [dealer, { latest, active, newerBlocked }] = await Promise.all([getDealership(dealershipId), getLatestScans(dealershipId)]);
+  if (!dealer) return null;
+  const { id, name, websiteUrl, brand, city, state, isActive, seoEnabled } = dealer;
+  const dealership = { id, name, websiteUrl, brand, city, state, isActive, seoEnabled };
 
   const [trendRows, activityRows, latestReport] = await Promise.all([
     db
@@ -121,13 +99,7 @@ export async function getClientDashboard(dealershipId: number): Promise<ClientDa
   if (!latest) return empty;
 
   // A newer check that was blocked is not presented (see presented-scan), but the client is told it happened.
-  const [newest] = await db
-    .select({ id: seoScans.id, outcome: seoScans.outcome, completedAt: seoScans.completedAt })
-    .from(seoScans)
-    .where(and(eq(seoScans.dealershipId, dealershipId), eq(seoScans.status, "completed")))
-    .orderBy(desc(seoScans.completedAt))
-    .limit(1);
-  const newerBlockedAt = newest && newest.id !== latest.id && newest.outcome === "blocked" ? newest.completedAt : null;
+  const newerBlockedAt = newerBlocked?.completedAt ?? null;
 
   const change = latest.changeSummary;
   const opportunities = await getOpportunities(latest.id);
@@ -152,7 +124,7 @@ export async function getClientDashboard(dealershipId: number): Promise<ClientDa
     topIssues: opportunities.slice(0, TOP_ISSUES),
     opportunityCount: opportunities.length,
   };
-}
+});
 
 /**
  * Pages grouped by the worst issue found on each.

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { HoverPrefetchLink } from "./hover-prefetch-link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Download, Search, X } from "lucide-react";
@@ -260,7 +260,7 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
                 }}
               >
                 <td>
-                  <Link
+                  <HoverPrefetchLink
                     href={`/dealerships/${r.id}`}
                     className="font-medium text-slate-900 hover:text-brand-700 hover:underline"
                     onClick={(e) => {
@@ -269,7 +269,7 @@ export function DealershipTable({ rows, initial = {} }: { rows: DealerTableRow[]
                     }}
                   >
                     {r.name}
-                  </Link>
+                  </HoverPrefetchLink>
                   <div className="text-xs text-slate-500">
                     {r.brand}
                     {r.location && ` · ${r.location}`}

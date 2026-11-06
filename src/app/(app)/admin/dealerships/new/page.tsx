@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { requireAdmin } from "@/lib/auth/guards";
 import { getSettings } from "@/lib/settings";
 import { env } from "@/lib/env";

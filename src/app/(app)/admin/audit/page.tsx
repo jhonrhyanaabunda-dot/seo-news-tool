@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { requireAdmin } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
 import { AUDIT_ACTIONS, AUDIT_PAGE_SIZE, auditActionLabel, auditHref, parseAuditFilters } from "@/lib/audit-shared";

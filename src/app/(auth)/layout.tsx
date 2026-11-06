@@ -48,7 +48,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <main className="auth-canvas flex items-center justify-center p-5 sm:p-8">
         <div className="auth-card w-full max-w-[26rem] rounded-xl bg-white p-7 sm:p-9">
           <div className="mb-5 flex justify-center">
-            <Image src="/a3brands-logo.png" alt="A3 Brands" width={1388} height={879} priority className="h-16 w-auto" />
+            <Image src="/a3brands-logo.png" alt="A3 Brands" width={101} height={64} priority className="h-16 w-auto" />
           </div>
           {children}
         </div>

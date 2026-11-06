@@ -144,6 +144,17 @@ With defaults (40 pages/scan, 750 ms politeness delay, 4 parallel jobs per tick,
 * Throughput ≈ 4 jobs × 24 min of processing per hour ≈ **150–400 dealership scans per day** from Vercel Cron alone.
 * For daily scans of larger portfolios: raise `JOB_CONCURRENCY` (network-bound, not CPU), run the tick more often, and/or run the standalone worker (`npm run worker`, `worker/Dockerfile`) — it drains the same queue continuously alongside the cron.
 
+### Keeping requests fast
+
+The database pool is small (2 connections per instance, 15 across everything), and each query that waits on another costs a network round trip. So:
+
+* **No per-dealership queries on a page.** Lists use one query across all dealerships (`/news` uses a window function), and independent reads start together.
+* **Read what the screen shows.** `crawl_state`, `issue_fingerprints`, email payloads and job payloads are left out of display queries.
+* **One read per request.** `getSettings`, `getLatestScans`, `getClientDashboard` and the opportunities list use React `cache()`, which applies only while a page renders; jobs and server actions always read fresh.
+* **Stream below the access check.** Dealership tabs and dashboard trends load inside `<Suspense>` so the page frame appears first. Authorisation stays in layouts, above every boundary, so a refusal is still a real 403/404. No `loading.tsx` goes above a route that checks access itself.
+* **Prefetch on intent.** `HoverPrefetchLink` prefetches on hover, focus or touch, not when a link scrolls into view, because prefetching runs queries.
+* **A running scan polls `/api/dealerships/[id]/scan-status`** and re-renders the page only when the scan ends, stalls or recovers.
+
 ## 9. Security
 
 * Authentication: bcrypt (cost 12), opaque DB-backed sessions (httpOnly, SameSite=Lax, Secure in production), revocable; login rate-limited per IP and per email.

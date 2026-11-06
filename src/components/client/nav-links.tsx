@@ -1,7 +1,8 @@
 "use client";
 
-import Link, { useLinkStatus } from "next/link";
+import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
+import { HoverPrefetchLink } from "./hover-prefetch-link";
 import clsx from "clsx";
 import { Building2, CircleHelp, Gauge, Loader2, Newspaper, Rss, ScrollText, ServerCog, Settings, Users } from "lucide-react";
 
@@ -26,7 +27,7 @@ export function NavLinks({ items }: { items: Array<{ href: string; label: string
         const Icon = ICONS[item.icon];
         return (
           <li key={item.href}>
-            <Link
+            <HoverPrefetchLink
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={clsx(
@@ -40,7 +41,7 @@ export function NavLinks({ items }: { items: Array<{ href: string; label: string
               <Icon aria-hidden className={clsx("h-4 w-4 shrink-0", active ? "text-blue-200" : "text-blue-100/50")} />
               {item.label}
               <NavPending />
-            </Link>
+            </HoverPrefetchLink>
           </li>
         );
       })}

@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    // Going back to a page seen in the last 30 seconds is instant. Anything saved clears this
+    // (server actions revalidate), and the scan banner refreshes itself.
+    staleTimes: { dynamic: 30 },
+  },
   // Server-only packages with Node built-ins stay external to the server bundle.
   serverExternalPackages: ["postgres", "nodemailer", "rss-parser", "playwright-core"],
   async headers() {

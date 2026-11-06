@@ -1,5 +1,6 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { Plus } from "lucide-react";
 import { RefreshCw } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
@@ -19,6 +20,7 @@ import { users } from "@/lib/db/schema";
 import { EmptyState, MetaStat, Notice, PageHeader, StatCard } from "@/components/ui";
 import { DealershipTable, type DealerTableRow } from "@/components/client/dealership-table";
 import { fmtDate, fmtDateTime, fmtRelative } from "@/components/format";
+import { Shell, SkelCard } from "@/components/ui/skeleton";
 import { GettingStarted } from "@/components/getting-started";
 import { gettingStartedItems } from "@/lib/onboarding/checklist";
 import { getGettingStartedState } from "@/lib/queries/onboarding";
@@ -44,13 +46,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // which of many sites needs A3's attention today.
   if (isClient(user)) return <ClientLanding allowed={allowed ?? []} tz={tz} />;
 
-  const [rows, settings, [me], setup] = await Promise.all([
+  // Only an administrator is prompted about two-factor or shown the setup checklist.
+  const isAdmin = user.role === "admin";
+  const [rows, settings, me, setup] = await Promise.all([
     getDealerRows(allowed),
     getSettings(),
-    db.select({ totpEnabledAt: users.totpEnabledAt }).from(users).where(eq(users.id, user.id)).limit(1),
-    user.role === "admin" ? getGettingStartedState() : Promise.resolve(null),
+    isAdmin ? db.select({ totpEnabledAt: users.totpEnabledAt }).from(users).where(eq(users.id, user.id)).limit(1).then((r) => r[0]) : null,
+    isAdmin ? getGettingStartedState() : Promise.resolve(null),
   ]);
-  const [portfolioTrend, movers] = await Promise.all([getPortfolioTrend(allowed, trendWindow, tz), getScoreMovers(allowed, 30)]);
   const summary = await getDashboardSummary(rows, allowed);
   const now = summary.generatedAt;
 
@@ -96,8 +99,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }
       />
 
-      {setup && <GettingStarted items={gettingStartedItems(setup)} />}
-
       {/* The four numbers worth acting on. Everything else is context, below. */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard
@@ -125,19 +126,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <MetaStat label="Access restricted" value={summary.accessRestricted} tone={summary.accessRestricted ? "warning" : "success"} hint="Not SEO issues" />
       </div>
 
+      {setup && <GettingStarted items={gettingStartedItems(setup)} />}
+
       {rows.length > 0 && (
-        <PortfolioTrends
-          trend={portfolioTrend}
-          movers={movers}
-          window={trendWindow}
-          hrefFor={(w) => {
-            const p = new URLSearchParams(Object.entries({ q, status, sort, dir }).filter((e): e is [string, string] => !!e[1]));
-            if (w !== 90) p.set("trend", String(w));
-            const qs = p.toString();
-            return qs ? `/?${qs}` : "/";
-          }}
-          formatDay={(day) => fmtDate(`${day}T12:00:00Z`, tz)}
-        />
+        <Suspense key={trendWindow} fallback={<TrendsSkeleton />}>
+          <DashboardTrends
+            allowed={allowed}
+            window={trendWindow}
+            tz={tz}
+            hrefFor={(w) => {
+              const p = new URLSearchParams(Object.entries({ q, status, sort, dir }).filter((e): e is [string, string] => !!e[1]));
+              if (w !== 90) p.set("trend", String(w));
+              const qs = p.toString();
+              return qs ? `/?${qs}` : "/";
+            }}
+          />
+        </Suspense>
       )}
 
       {rows.length === 0 ? (
@@ -156,6 +160,23 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <DealershipTable rows={tableRows} initial={{ q, status, sort, dir }} />
       )}
     </>
+  );
+}
+
+/** The trend reads every scan in its window, so the figures above it do not wait for it. */
+async function DashboardTrends({ allowed, window, tz, hrefFor }: { allowed: number[] | null; window: TrendWindow; tz: string; hrefFor: (w: TrendWindow) => string }) {
+  const [trend, movers] = await Promise.all([getPortfolioTrend(allowed, window, tz), getScoreMovers(allowed, 30)]);
+  return <PortfolioTrends trend={trend} movers={movers} window={window} hrefFor={hrefFor} formatDay={(day) => fmtDate(`${day}T12:00:00Z`, tz)} />;
+}
+
+function TrendsSkeleton() {
+  return (
+    <Shell>
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <SkelCard className="h-80 lg:col-span-2" />
+        <SkelCard className="h-80" />
+      </div>
+    </Shell>
   );
 }
 

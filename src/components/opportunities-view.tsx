@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { HoverPrefetchLink as Link } from "@/components/client/hover-prefetch-link";
 import { ArrowRight } from "lucide-react";
 import { countByPriority, scopeLabel, type Opportunity } from "@/lib/seo/opportunity";
 import { DetailsPrunedNotice } from "@/components/detail-retention";
