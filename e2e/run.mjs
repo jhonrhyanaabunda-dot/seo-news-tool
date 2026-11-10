@@ -65,6 +65,10 @@ function stopAll() {
 const appEnv = {
   DATABASE_URL: dbUrl,
   DATABASE_URL_UNPOOLED: dbUrl,
+  // Next.js loads .env.local, and APP_DATABASE_URL there (the production database) would win over
+  // the test database above. Set to empty here, so Next keeps them empty and the override is off.
+  APP_DATABASE_URL: "",
+  APP_DATABASE_URL_UNPOOLED: "",
   DATABASE_POOL_MAX: "1",
   EMAIL_PROVIDER: "console",
   APP_URL: `http://localhost:${APP_PORT}`,
