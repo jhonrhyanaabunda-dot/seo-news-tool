@@ -197,3 +197,11 @@ test("issue rows per check are capped, and the cap is a real number", () => {
   const titleIssues = r.issues.filter((i) => i.checkKey === "title_missing");
   assert.ok(titleIssues.length <= THRESHOLDS.maxIssuesPerCheck, `expected at most ${THRESHOLDS.maxIssuesPerCheck}, got ${titleIssues.length}`);
 });
+
+test("a page that answered 200 but timed out before its content arrived is not graded", () => {
+  // The BMW /models-sitemap/ capture of 2026-11-10: status 200, no document, TIMEOUT. Graded, it added ten "missing" issues.
+  const timedOut = cleanPage(2, "/models-sitemap/", { title: null, metaDescription: null, h1: [], canonical: null, lang: null, hasViewport: false, schemaTypes: [], openGraph: null, wordCount: null, htmlBytes: null, errorCode: "TIMEOUT", responseTimeMs: 45_082 });
+  const keys = keysFrom([cleanPage(1, "/"), timedOut]);
+  for (const k of ["title_missing", "h1_missing", "viewport_missing", "canonical_missing", "description_missing", "lang_missing", "schema_missing", "slow_response"]) assert.ok(!keys.has(k), `${k} must not be reported for a page that did not load`);
+  assert.equal(computeScore(evaluateScan([cleanPage(1, "/"), timedOut], [], site).checks).score, computeScore(evaluateScan([cleanPage(1, "/")], [], site).checks).score);
+});

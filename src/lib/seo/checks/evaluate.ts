@@ -138,8 +138,13 @@ function hasNoindex(p: EvalPage): boolean {
   return /noindex/i.test(p.robotsMeta ?? "") || /noindex/i.test(p.xRobotsTag ?? "");
 }
 
+/**
+ * A page whose document was read. A 2xx with an error code (a browser render that timed out after the
+ * server answered 200) has no content: grading it reported a missing title, H1, viewport, language…
+ * (BMW 78 instead of 85 on 2026-10-30 and 2026-11-10), so it is not analysed, like a protected page.
+ */
 export function isOkHtmlPage(p: EvalPage): boolean {
-  return p.status === "fetched" && p.httpStatus !== null && p.httpStatus >= 200 && p.httpStatus < 300;
+  return p.status === "fetched" && p.httpStatus !== null && p.httpStatus >= 200 && p.httpStatus < 300 && !p.errorCode;
 }
 
 /**

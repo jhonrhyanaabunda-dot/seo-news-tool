@@ -86,6 +86,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function fetchPage(url: string, opts: Parameters<typeof safeFetch>[1], renderMode: RenderMode = "auto", siteRefusesPlain = false): Promise<FetchResult> {
   const res = await fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
+  // A page that timed out (a slow moment on the dealer's server) gets one more try before it is reported as not loaded.
+  if (!opts?.headersOnly && res.errorCode === "TIMEOUT") {
+    await sleep(2000);
+    return fetchPageOnce(url, opts, renderMode, siteRefusesPlain);
+  }
   // An interrupted browser render can come back as a 200 with an empty document; one more try usually gets the page.
   // Only a real, empty 2xx document is retried; non-HTML (NOT_HTML, body null) and any error result are returned as they are.
   if (opts?.headersOnly || res.errorCode || res.body === null || res.status === null || res.status < 200 || res.status >= 300) return res;
@@ -630,6 +635,15 @@ async function processPageResult(
       .where(eq(scanPages.id, row.id));
     return ok;
   }
+  // A 2xx whose document never arrived (a browser render that timed out after the server answered) is a
+  // failed read, not a page: it is shown as "Timeout" and left out of the score.
+  if (res.status >= 200 && res.status < 300 && res.body === null && res.errorCode) {
+    await db
+      .update(scanPages)
+      .set({ ...base, status: "failed", errorCode: res.errorCode, errorMessage: res.errorMessage ?? "The page did not finish loading in time, so it was not analysed (not counted as an SEO issue)." })
+      .where(eq(scanPages.id, row.id));
+    return ok;
+  }
   if (res.status < 200 || res.status >= 300 || res.body === null) {
     await db
       .update(scanPages)
@@ -1047,6 +1061,44 @@ async function browserLinkChecks(scan: SeoScan, state: CrawlState, deadline: num
 
 /* ───────────────────────────── finalize ───────────────────────────── */
 
+/** How long a link's last first-hand "broken" result stands in when the site refuses to let it be re-checked. */
+const CARRY_BROKEN_LINK_DAYS = 7;
+
+/**
+ * Internal links the website refused to let us check this time (UNVERIFIABLE) keep their last first-hand
+ * broken result from the last week. Without this, a day on which the site's security refused every link
+ * check made a known 404 vanish and the links score jump to 100 (BMW 93 instead of 85 on 2026-11-07).
+ * Only first-hand results are a source (never a CARRIED row), so a link that stays unverifiable for longer
+ * than the window is dropped rather than carried forever; a link that is now verified OK is never touched.
+ */
+async function carryForwardBrokenLinks(scan: SeoScan) {
+  if (!scan.websiteUrl) return;
+  const carried = (await db.execute(sql`
+    with prev as (
+      select distinct on (pl.url) pl.url, pl.http_status, pl.error_code, ps.completed_at
+      from ${scanLinks} pl join ${seoScans} ps on ps.id = pl.scan_id
+      where ps.dealership_id = ${scan.dealershipId} and ps.id <> ${scan.id} and ps.status = 'completed'
+        and ps.completed_at > now() - make_interval(days => ${CARRY_BROKEN_LINK_DAYS}::int)
+        and ps.website_url = ${scan.websiteUrl}
+        and pl.is_internal and pl.checked
+        and pl.error_code is distinct from 'CARRIED' and pl.error_code is distinct from 'REUSED' and pl.error_code is distinct from 'UNVERIFIABLE'
+      order by pl.url, ps.completed_at desc
+    )
+    update ${scanLinks} l set is_broken = true, http_status = prev.http_status, error_code = 'CARRIED'
+    from prev
+    where l.scan_id = ${scan.id} and l.url = prev.url and l.is_internal and l.error_code = 'UNVERIFIABLE'
+      and prev.http_status is not null and (prev.http_status in (404, 410) or prev.http_status >= 500)
+    returning l.url
+  `)) as unknown as Array<{ url: string }>;
+  if (carried.length) {
+    await logScanEvent(
+      scan.id,
+      "info",
+      `The website refused to let ${carried.length} internal link(s) be re-checked; they were confirmed broken in a scan within the last ${CARRY_BROKEN_LINK_DAYS} days, so they are still reported as broken.`,
+    );
+  }
+}
+
 async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState, deadline: number, crawler: { region: string; id: string }) {
   const settings = await getSettings();
   const [current] = await db.select().from(seoScans).where(eq(seoScans.id, scan.id)).limit(1);
@@ -1055,6 +1107,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   const siteAvailable = crawlBlocked ? true : state.homepageStatus !== null && state.homepageStatus !== undefined && state.homepageStatus >= 200 && state.homepageStatus < 300;
 
   const pages = await db.select().from(scanPages).where(eq(scanPages.scanId, scan.id)).orderBy(asc(scanPages.id));
+  await carryForwardBrokenLinks(scan);
   const brokenLinks = oneRowPerTarget(await db.select().from(scanLinks).where(and(eq(scanLinks.scanId, scan.id), eq(scanLinks.isBroken, true))));
   // Internal links whose target redirects (internal_link_redirects); evaluateScan decides which redirects matter.
   const redirectLinks = oneRowPerTarget(
