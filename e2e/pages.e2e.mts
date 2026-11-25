@@ -80,6 +80,10 @@ console.log("1. Staff (administrator): every screen loads, shows its data, and b
   // Seed: 78 a month ago, 84 now.
   const movers = await page.locator("section", { hasText: "Biggest changes" }).innerText();
   ck("biggest changes shows Example Motors +6 (78 → 84)", movers.includes("Example Motors") && movers.includes("+6") && movers.includes("78 → 84"), movers.slice(0, 200));
+  // Seed scan 3 could not load the homepage: the dashboard keeps scan 2's 84, and the dealer page says why.
+  ck("a failed read is not presented: the dashboard still shows 84", (await page.locator("main").innerText()).includes("84"));
+  await page.goto(`${BASE}/dealerships/1`, { waitUntil: "networkidle" });
+  ck("the dealership page explains the newer check read nothing", await page.getByText("could not load the homepage in time").first().isVisible().catch(() => false));
   await page.goto(`${BASE}/?trend=30`, { waitUntil: "networkidle" });
   ck("the 30-day switch keeps the dashboard working", await page.getByText("over 30 days").first().isVisible().catch(() => false) || await page.getByText("Not enough history yet").first().isVisible().catch(() => false));
   // Review queue, both scopes: the car show (relevance 75) comes before the Outback trim (30).

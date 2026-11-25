@@ -68,10 +68,13 @@ export const getLatestScans = cache(async (dealershipId: number) => {
     getLatestScanAttempt(dealershipId),
   ]);
   const newerBlocked = latest && newest && newest.id !== latest.id && newest.outcome === "blocked" ? { completedAt: newest.completedAt } : null;
+  const newerFailed = latest && newest && newest.id !== latest.id && newest.outcome === "failed" ? { completedAt: newest.completedAt } : null;
   return {
     latest: latest ?? null,
     /** Set when the newest completed scan was blocked and an earlier one is presented instead. */
     newerBlocked,
+    /** Set when the newest scan could not load the homepage (read nothing) and an earlier one is presented instead. */
+    newerFailed,
     active: attempt && ACTIVE_SCAN_STATUSES.includes(attempt.status) ? attempt : null,
     lastAttempt: attempt ?? null,
   };

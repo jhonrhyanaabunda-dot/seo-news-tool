@@ -22,6 +22,12 @@ export const CRAWL_POLICY = {
    * applies. Blocks on dealer sites have been transient: every one cleared on the next attempt.
    */
   blockedRecheckHours: 2,
+  /**
+   * A scan whose homepage never finished loading (outcome "failed") read nothing; look again this many
+   * hours later, up to maxFailedReadRechecks times in a row, before waiting for the normal schedule.
+   */
+  failedReadRecheckHours: 2,
+  maxFailedReadRechecks: 3,
 };
 
 /** One re-check, only after the first block of a streak; a blocked re-check falls back to the back-off. */
@@ -61,6 +67,22 @@ export function consecutiveBlocked(recentOutcomes: Array<string | null>): number
     n++;
   }
   return n;
+}
+
+/** Leading "failed" outcomes (newest first): consecutive scans that could not read the homepage. */
+export function consecutiveFailedReads(recentOutcomes: Array<string | null>): number {
+  let n = 0;
+  for (const outcome of recentOutcomes) {
+    if (outcome !== "failed") break;
+    n++;
+  }
+  return n;
+}
+
+/** Re-check after a failed read, at most maxFailedReadRechecks times in a row. */
+export function needsFailedReadRecheck(recentOutcomes: Array<string | null>): boolean {
+  const n = consecutiveFailedReads(recentOutcomes);
+  return n >= 1 && n <= CRAWL_POLICY.maxFailedReadRechecks;
 }
 
 /** Hours to wait before the next scheduled scan of a site whose recent scans were blocked. */

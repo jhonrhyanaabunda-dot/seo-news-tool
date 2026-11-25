@@ -40,7 +40,7 @@ import { evaluateRemoteAudit } from "./checks/remote-evaluate";
 import { evaluateScan, isConfirmedVdp, isOkHtmlPage, urlKey, type EvalPage } from "./checks/evaluate";
 import { queuePerformanceSnapshot } from "./performance-job";
 import { pickPerformanceTargets } from "./web-vitals";
-import { nextBlockState } from "./crawl-policy";
+import { CRAWL_POLICY, nextBlockState } from "./crawl-policy";
 import { computeOutcome } from "./outcome";
 import { computeScore } from "./scoring";
 import { isUnverifiableHost, THRESHOLDS } from "./checks/config";
@@ -368,6 +368,15 @@ async function initPhase(scan: SeoScan, dealer: Dealership): Promise<CrawlState>
       .onConflictDoNothing();
     await db.update(seoScans).set({ siteAvailable: false }).where(eq(seoScans.id, scan.id));
     await saveSiteChecks(scan.id, robots, null, home, state);
+    // Our read failed rather than the site answering with an error: three days of homepage timeouts on every
+    // dealership (2026-11-20..22, this PC's connection or the sites' host) were scored from site-level checks
+    // alone as "no sitemap, no inventory page" (83 instead of 88). Such a scan is not a measurement.
+    if (home.errorCode && READ_FAILURE_CODES.has(home.errorCode)) {
+      state.homepageReadFailed = home.errorCode;
+      await logScanEvent(scan.id, "error", "The homepage did not finish loading in time (twice), so this check read nothing. It is not scored; the last good result stays on screen and the site is checked again in a couple of hours.", { status: home.status, error: home.errorCode });
+      state.phase = "finalize";
+      return state;
+    }
     await logScanEvent(scan.id, "error", "Homepage could not be loaded", { status: home.status, error: home.errorCode });
     state.phase = "finalize";
     return state;
@@ -1061,6 +1070,9 @@ async function browserLinkChecks(scan: SeoScan, state: CrawlState, deadline: num
 
 /* ───────────────────────────── finalize ───────────────────────────── */
 
+/** Homepage results that mean our read did not complete, not that the website answered with an error. */
+const READ_FAILURE_CODES = new Set(["TIMEOUT", "INCOMPLETE_RENDER", "EMPTY_RESPONSE"]);
+
 /** How long a link's last first-hand "broken" result stands in when the site refuses to let it be re-checked. */
 const CARRY_BROKEN_LINK_DAYS = 7;
 
@@ -1104,7 +1116,9 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   const [current] = await db.select().from(seoScans).where(eq(seoScans.id, scan.id)).limit(1);
   const siteChecks = (current?.siteChecks ?? null) as SiteChecksSummary | null;
   const crawlBlocked = Boolean(state.crawlBlocked);
-  const siteAvailable = crawlBlocked ? true : state.homepageStatus !== null && state.homepageStatus !== undefined && state.homepageStatus >= 200 && state.homepageStatus < 300;
+  // The homepage answering 200 is not enough: its content has to have been read (see homepageReadFailed).
+  const readFailed = !crawlBlocked && Boolean(state.homepageReadFailed);
+  const siteAvailable = crawlBlocked ? true : !readFailed && state.homepageStatus !== null && state.homepageStatus !== undefined && state.homepageStatus >= 200 && state.homepageStatus < 300;
 
   const pages = await db.select().from(scanPages).where(eq(scanPages.scanId, scan.id)).orderBy(asc(scanPages.id));
   await carryForwardBrokenLinks(scan);
@@ -1210,7 +1224,10 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
     .orderBy(desc(seoScans.completedAt))
     .limit(50);
   const sameSite = recent.filter((s) => sameWebsite(s, thisScan));
-  const previousAny = sameSite[0];
+  // A failed read says nothing about the site, so it is never "the previous scan" (no false "site is back" alert).
+  const previousAny = sameSite.find((s) => s.outcome !== "failed");
+  // This failed read plus the failed reads right before it.
+  const failedReadStreak = readFailed ? 1 + (sameSite.findIndex((s) => s.outcome !== "failed") === -1 ? sameSite.length : sameSite.findIndex((s) => s.outcome !== "failed")) : 0;
   // Scans that could not evaluate every page are not valid baselines.
   const baseline = sameSite.find((s) => s.siteAvailable === true && s.issueFingerprints !== null && s.score !== null && s.outcome !== "blocked" && s.outcome !== "partially_blocked");
 
@@ -1218,7 +1235,7 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
   const pagesBlocked = pages.filter((p) => p.errorCode === "BLOCKED").length;
   const pagesNotEvaluated = pages.filter((p) => p.errorCode === "NOT_EVALUATED").length;
   const pagesFailedOther = pages.filter((p) => p.errorCode !== "BLOCKED" && (p.status === "failed" || (p.httpStatus ?? 0) >= 500)).length;
-  const outcome = computeOutcome({ crawlBlocked, siteAvailable, pagesBlocked, pagesNotEvaluated, pagesFailedOther, stoppedForBlock: Boolean(state.stoppedForBlock) });
+  const outcome = readFailed ? ("failed" as const) : computeOutcome({ crawlBlocked, siteAvailable, pagesBlocked, pagesNotEvaluated, pagesFailedOther, stoppedForBlock: Boolean(state.stoppedForBlock) });
   const blockedUrls = pages
     .filter((p) => p.errorCode === "BLOCKED")
     .slice(0, 20)
@@ -1432,6 +1449,26 @@ async function finalizeScan(scan: SeoScan, dealer: Dealership, state: CrawlState
       await logger.warn("scan", "Could not queue the Core Web Vitals measurement", { scanId: scan.id, err }, dealer.id);
     }
   }
+  if (readFailed) {
+    // Nothing was read: no history snapshot, no issue verification, no score alerts. If the homepage keeps
+    // failing through the re-checks (CRAWL_POLICY.maxFailedReadRechecks), say so once.
+    if (failedReadStreak === CRAWL_POLICY.maxFailedReadRechecks + 1) {
+      await createAlert(
+        {
+          dealershipId: dealer.id,
+          scanId: scan.id,
+          type: "scan_failed",
+          severity: "warning",
+          title: `${dealer.name}: the last ${failedReadStreak} checks could not load the homepage`,
+          message: "The homepage did not finish loading in time on each attempt. The last good score is still shown. If this continues, check the website, and the monitoring PC's internet connection.",
+          dedupeKey: `read-failed:${dealer.id}:${scan.id}`,
+        },
+        { settings, dealership: dealer },
+      ).catch((err) => logger.warn("scan", "Could not create the failed-read alert", { scanId: scan.id, err }, dealer.id));
+    }
+    return;
+  }
+
   // Monthly history snapshot + issue-workflow verification (failure-isolated; see post-scan.ts).
   await afterScanCompleted(scan.id, dealer.id);
 

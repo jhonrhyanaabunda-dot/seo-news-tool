@@ -72,3 +72,13 @@ test("dropped connections are recognised as transient, real query errors are not
   assert.equal(isTransientNetworkError(Object.assign(new Error("Failed query"), { cause: new Error('column "x" does not exist') })), false);
   assert.equal(isTransientNetworkError("boom"), false);
 });
+
+test("a scan that could not load the homepage is re-checked up to 3 times in a row, then waits for the schedule", async () => {
+  const { needsFailedReadRecheck, consecutiveFailedReads } = await import("../src/lib/seo/crawl-policy");
+  assert.equal(needsFailedReadRecheck(["completed", "completed"]), false);
+  assert.equal(needsFailedReadRecheck(["failed", "completed"]), true);
+  assert.equal(needsFailedReadRecheck(["failed", "failed", "failed", "completed"]), true);
+  assert.equal(needsFailedReadRecheck(["failed", "failed", "failed", "failed"]), false, "after three re-checks the normal schedule takes over");
+  assert.equal(needsFailedReadRecheck(["blocked", "failed"]), false, "blocked scans have their own re-check");
+  assert.equal(consecutiveFailedReads(["failed", "failed", "completed", "failed"]), 2);
+});

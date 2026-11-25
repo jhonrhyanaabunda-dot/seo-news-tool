@@ -296,6 +296,11 @@ export interface CrawlState {
   crawlBlocked?: boolean;
   homepageErrorCode?: string | null;
   homepageStatus?: number | null;
+  /**
+   * Set when the homepage answered but its content never arrived (TIMEOUT, interrupted render):
+   * the scan read nothing, so it is recorded as "failed" with no score and re-checked soon.
+   */
+  homepageReadFailed?: string | null;
   /** Link ids selected (deterministically) for status checking. */
   linkQueue?: number[];
   /** Internal links the plain client was refused on, to re-check through the browser session. */

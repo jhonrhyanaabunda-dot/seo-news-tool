@@ -15,6 +15,8 @@ export function crawlJobStatus(scan: { status: string; outcome: string | null })
     case "finalizing":
       return "RUNNING";
     case "completed":
+      // "failed" here is a completed run that could not load the homepage (read nothing, not scored).
+      if (scan.outcome === "failed") return "FAILED";
       return scan.outcome === "partially_blocked" || scan.outcome === "blocked" ? "PARTIAL" : "COMPLETED";
     default:
       return "FAILED"; // failed, cancelled

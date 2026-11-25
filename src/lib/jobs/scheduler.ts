@@ -7,7 +7,7 @@ import { logger, errorMessage } from "@/lib/logger";
 import { claimPeriod, getSettings, localParts } from "@/lib/settings";
 import { onlineRegions } from "@/lib/crawler/heartbeat";
 import { checkCrawlerAvailability } from "@/lib/crawler/offline-alert";
-import { blockedBackoffHours, consecutiveBlocked, CRAWL_POLICY, needsBlockedRecheck } from "@/lib/seo/crawl-policy";
+import { blockedBackoffHours, consecutiveBlocked, CRAWL_POLICY, needsBlockedRecheck, needsFailedReadRecheck } from "@/lib/seo/crawl-policy";
 import { createScanAndJob, logScanEvent } from "@/lib/seo/scans";
 import { enqueueJob } from "./queue";
 import { isMonthlySendDay, reportedMonth } from "@/lib/reports/monthly";
@@ -101,6 +101,39 @@ export async function scheduleDueWork(now = new Date()) {
       }
     } catch (err) {
       await logger.error("scheduler", "Failed to queue blocked-site re-check", { error: errorMessage(err) }, Number(row.id));
+    }
+  }
+
+  // A scan whose homepage never finished loading read nothing (outcome "failed", not scored). Look again a couple
+  // of hours later rather than waiting a full interval, up to maxFailedReadRechecks times in a row.
+  const failedReads = await db.execute<{ id: number; recent_outcomes: Array<string | null> | null }>(sql`
+    select d.id,
+      (select array_agg(r.outcome::text order by r.created_at desc) from (
+         select outcome, created_at from seo_scans x where x.dealership_id = d.id and x.status in ('completed', 'failed')
+         order by x.created_at desc limit ${CRAWL_POLICY.maxFailedReadRechecks + 1}
+       ) r) as recent_outcomes
+    from ${dealerships} d
+    where d.is_active and d.seo_enabled
+      and exists (
+        select 1 from seo_scans l where l.id = (
+          select x.id from seo_scans x where x.dealership_id = d.id and x.status in ('completed', 'failed') order by x.created_at desc limit 1
+        ) and l.outcome = 'failed'
+          and l.completed_at <= ${now.toISOString()}::timestamptz - make_interval(hours => ${CRAWL_POLICY.failedReadRecheckHours}::int)
+      )
+      and not exists (select 1 from seo_scans s where s.dealership_id = d.id and s.status in ('queued','crawling','finalizing'))
+    order by d.id asc
+    limit ${MAX_SCANS_SCHEDULED_PER_TICK}
+  `);
+  for (const row of failedReads as unknown as Array<{ id: number; recent_outcomes: Array<string | null> | null }>) {
+    if (!needsFailedReadRecheck(row.recent_outcomes ?? [])) continue;
+    try {
+      const scanId = await createScanAndJob(Number(row.id), "scheduled");
+      if (scanId) {
+        out.seoQueued++;
+        await logScanEvent(scanId, "info", `Re-check queued: the previous scan could not load the homepage ${CRAWL_POLICY.failedReadRecheckHours}+ hours ago, so it read nothing.`);
+      }
+    } catch (err) {
+      await logger.error("scheduler", "Failed to queue failed-read re-check", { error: errorMessage(err) }, Number(row.id));
     }
   }
 

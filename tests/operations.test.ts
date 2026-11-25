@@ -114,9 +114,9 @@ test("every surface presents the last scan that read the site, for up to a week"
   const { presentedScanOrder, presentedScanOrderSql, BLOCKED_FALLBACK_DAYS } = await import("@/lib/seo/presented-scan");
   assert.equal(BLOCKED_FALLBACK_DAYS, 7);
   const rendered = new PgDialect().sqlToQuery(presentedScanOrder[0]);
-  assert.match(rendered.sql, /case when "seo_scans"\."outcome" is distinct from 'blocked' and "seo_scans"\."completed_at" > now\(\) - make_interval\(days => \$1::int\) then 0 else 1 end/);
+  assert.match(rendered.sql, /case when "seo_scans"\."outcome" is distinct from 'blocked' and "seo_scans"\."outcome" is distinct from 'failed' and "seo_scans"\."completed_at" > now\(\) - make_interval\(days => \$1::int\) then 0 else 1 end/);
   assert.deepEqual(rendered.params, [7]);
-  assert.equal(new PgDialect().sqlToQuery(presentedScanOrderSql).sql, "case when s.outcome is distinct from 'blocked' and s.completed_at > now() - make_interval(days => 7) then 0 else 1 end, s.completed_at desc");
+  assert.equal(new PgDialect().sqlToQuery(presentedScanOrderSql).sql, "case when s.outcome is distinct from 'blocked' and s.outcome is distinct from 'failed' and s.completed_at > now() - make_interval(days => 7) then 0 else 1 end, s.completed_at desc");
 
   assert.ok(read("src/lib/queries/client-dashboard.ts").includes("getLatestScans(dealershipId)"), "the client dashboard uses the same lookup as the staff page");
   for (const f of ["src/lib/queries/dealership.ts", "src/lib/reports/findings.ts", "src/lib/email/reports.ts", "src/lib/news/monitor.ts"])
@@ -124,6 +124,8 @@ test("every surface presents the last scan that read the site, for up to a week"
   assert.ok(read("src/lib/queries/dashboard.ts").includes("order by ${presentedScanOrderSql} limit 1"), "dashboard rows present the same scan");
   // People are told when a newer check was blocked, rather than shown an older date without explanation.
   assert.ok(read("src/app/(app)/dealerships/[id]/page.tsx").includes("{latest && newerBlocked && ("));
+  // …and when a newer check could not load the homepage (read nothing, so not presented).
+  assert.ok(read("src/app/(app)/dealerships/[id]/page.tsx").includes("{latest && newerFailed && ("));
   assert.ok(read("src/components/client-dashboard.tsx").includes("{scan?.newerBlockedAt && ("));
   assert.ok(read("src/lib/queries/dashboard.ts").includes("r.newer_blocked_at"));
 });

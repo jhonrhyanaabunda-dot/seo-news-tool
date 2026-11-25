@@ -44,7 +44,7 @@ export async function buildDealerDigest(d: Dealership, periodStart: Date, s: App
     .limit(20);
   // A scan of a previous website address is not a valid baseline.
   // Blocked / partially blocked scans didn't evaluate every page, so they are not valid baselines.
-  const baseline = latest ? candidates.find((c) => sameWebsite(c, latest) && c.outcome !== "blocked" && c.outcome !== "partially_blocked") : undefined;
+  const baseline = latest ? candidates.find((c) => sameWebsite(c, latest) && c.outcome !== "blocked" && c.outcome !== "partially_blocked" && c.outcome !== "failed") : undefined;
 
   let newCritical = 0;
   let newWarnings = 0;

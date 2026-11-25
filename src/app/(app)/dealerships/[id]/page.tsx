@@ -115,7 +115,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
   if (isClient(user) && searchTab) CLIENT_TABS.push("search");
   const allowedTabs = isClient(user) ? CLIENT_TABS : STAFF_TABS;
   const tab = allowedTabs.includes(sp.tab ?? "") ? sp.tab! : "overview";
-  const [{ latest, newerBlocked, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
+  const [{ latest, newerBlocked, newerFailed, active, lastAttempt }, newsCounts] = await Promise.all([getLatestScans(id), getNewsCounts(id)]);
   const issueCounts = latest ? await getIssueCounts(latest.id) : null;
   const base = `/dealerships/${id}`;
   const href = (next: SP) => {
@@ -212,6 +212,12 @@ export default async function DealershipPage({ params, searchParams }: { params:
       {latest && newerBlocked && (
         <Notice tone="info">
           The latest check{newerBlocked.completedAt ? <> ({fmtDateTime(newerBlocked.completedAt, tz)})</> : null} was blocked by the website&apos;s security, which is usually temporary; the monitor checks again automatically.
+          The results below are from the last scan that could read the site ({latest.completedAt ? fmtDateTime(latest.completedAt, tz) : "earlier"}).
+        </Notice>
+      )}
+      {latest && newerFailed && (
+        <Notice tone="info">
+          The latest check{newerFailed.completedAt ? <> ({fmtDateTime(newerFailed.completedAt, tz)})</> : null} could not load the homepage in time, so it read nothing and was not scored; the monitor checks again within a few hours.
           The results below are from the last scan that could read the site ({latest.completedAt ? fmtDateTime(latest.completedAt, tz) : "earlier"}).
         </Notice>
       )}
