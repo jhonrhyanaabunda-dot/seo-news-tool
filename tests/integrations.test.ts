@@ -374,3 +374,67 @@ test("integration jobs are claimable by every runner type, low priority, and kep
   assert.ok(/renderMode: "never"/.test(sync), "competitor audits never use the browser fallback");
   assert.ok(/robots\.blocksMonitor/.test(sync), "robots.txt is honoured for competitors");
 });
+
+/* ─────────────── Search Console via "Connect with Google" (OAuth) ─────────────── */
+
+test("the OAuth state only verifies for the same browser, administrator and within 10 minutes", async () => {
+  const { createOAuthState, verifyOAuthState } = await import("@/lib/integrations/google-oauth-core");
+  const secret = "s".repeat(32);
+  const t0 = 1_800_000_000_000;
+  const state = createOAuthState(7, secret, t0);
+  assert.equal(verifyOAuthState(state, state, 7, secret, t0 + 60_000), true);
+  assert.equal(verifyOAuthState(state, undefined, 7, secret, t0), false, "no cookie: started in another browser");
+  assert.equal(verifyOAuthState(state, createOAuthState(7, secret, t0), 7, secret, t0), false, "a different round trip");
+  assert.equal(verifyOAuthState(state, state, 8, secret, t0), false, "another administrator");
+  assert.equal(verifyOAuthState(state, state, 7, secret, t0 + 11 * 60_000), false, "expired");
+  assert.equal(verifyOAuthState(state, state, 7, "x".repeat(32), t0), false, "signed with another secret");
+  const [nonce, , ts, sig] = state.split(".");
+  const forged = `${nonce}.1.${ts}.${sig}`;
+  assert.equal(verifyOAuthState(forged, forged, 1, secret, t0), false, "the user id cannot be swapped");
+});
+
+test("the connected account's email is read from Google's ID token", async () => {
+  const { emailFromIdToken } = await import("@/lib/integrations/google-oauth-core");
+  const token = ["e30", Buffer.from(JSON.stringify({ email: "seo@a3brands.example" })).toString("base64url"), "sig"].join(".");
+  assert.equal(emailFromIdToken(token), "seo@a3brands.example");
+  assert.equal(emailFromIdToken("garbage"), null);
+  assert.equal(emailFromIdToken(undefined), null);
+});
+
+test("OAuth access tokens are refreshed once, cached, and a revoked connection is a permanent error", async () => {
+  const { OAuthTokenSource } = await import("@/lib/integrations/google-oauth-core");
+  let calls = 0;
+  let lastBody = "";
+  const ok = async (_url: string, init?: RequestInit) => {
+    calls++;
+    lastBody = String(init?.body);
+    return jsonResponse(200, { access_token: `a${calls}`, expires_in: 3600 });
+  };
+  let now = 1_000_000;
+  const src = new OAuthTokenSource(async () => "refresh-1", () => ({ id: "client", secret: "shh" }), ok, () => now);
+  const [t1, t2] = await Promise.all([src.getToken(), src.getToken()]);
+  assert.equal(t1, "a1");
+  assert.equal(t2, "a1", "concurrent callers share one refresh");
+  assert.equal(calls, 1);
+  assert.match(lastBody, /grant_type=refresh_token/);
+  assert.match(lastBody, /refresh_token=refresh-1/);
+  now += 30 * 60_000;
+  assert.equal(await src.getToken(), "a1", "cached while valid");
+  now += 30 * 60_000;
+  assert.equal(await src.getToken(), "a2", "refreshed shortly before expiry");
+
+  const revoked = new OAuthTokenSource(async () => "old", () => ({ id: "c", secret: "s" }), async () => jsonResponse(400, { error: "invalid_grant" }));
+  await assert.rejects(revoked.getToken(), (e: Error & { permanent?: boolean }) => e.permanent === true && /Reconnect it in Admin → System/.test(e.message));
+});
+
+test("Search Console works with a connected Google account, and a 403 names that account", async () => {
+  const seen: string[] = [];
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    seen.push((init?.headers as Record<string, string>).Authorization);
+    return seen.length === 1 ? jsonResponse(200, { rows: [] }) : jsonResponse(403, { error: { message: "User does not have sufficient permission" } });
+  };
+  const client = createGscClient({ auth: { getToken: async () => "oauth-token", invalidate: () => {}, identity: "oauth:seo@a3brands.example" }, fetchImpl });
+  assert.deepEqual(await client.query("sc-domain:example.com", searchAnalyticsRequest("2026-09-01", "2026-09-28", "date", 10)), []);
+  assert.equal(seen[0], "Bearer oauth-token");
+  await assert.rejects(client.query("sc-domain:example.com", searchAnalyticsRequest("2026-09-01", "2026-09-28", "date", 10)), /seo@a3brands\.example has no access to this Search Console property/);
+});

@@ -113,6 +113,10 @@ const schema = z.object({
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
   /** Google listing signals via Places API (New) (optional). Restrict the key to that API. */
   GOOGLE_PLACES_API_KEY: z.string().optional(),
+  // "Connect with Google" for Search Console (an OAuth client from Google Cloud → Credentials), for organisations
+  // that cannot create service account keys. Redirect URI to register: <APP_URL>/api/integrations/google/callback
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
 
   /**

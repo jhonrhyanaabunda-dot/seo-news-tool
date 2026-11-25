@@ -22,9 +22,9 @@ export const dynamic = "force-dynamic";
 
 const JOB_LABEL: Record<string, string> = { seo_scan: "SEO scan", news_scan: "News check", digest: "Email summary", alert: "Critical alert email", maintenance: "Maintenance", report: "SEO report", gsc_sync: "Search Console sync", places_sync: "Google listing check", competitor_audit: "Competitor check" };
 
-export default async function SystemPage({ searchParams }: { searchParams: Promise<{ notice?: string; emails?: string }> }) {
+export default async function SystemPage({ searchParams }: { searchParams: Promise<{ notice?: string; emails?: string; google?: string }> }) {
   await requireAdmin();
-  const { notice, emails: emailsParam } = await searchParams;
+  const { notice, emails: emailsParam, google } = await searchParams;
   const OUTCOMES = ["accepted", "failed", "retrying", "skipped", "queued"] as const;
   const emailFilter = OUTCOMES.includes(emailsParam as (typeof OUTCOMES)[number]) ? (emailsParam as EmailOutcome) : undefined;
   const tz = env().APP_TIMEZONE;
@@ -149,7 +149,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         </Card>
       </div>
 
-      <DataIntegrationsCard />
+      <DataIntegrationsCard googleResult={google} />
 
       <div className="space-y-5">
         <section>

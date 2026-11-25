@@ -31,19 +31,32 @@ function json(body: string, label: string): unknown {
   }
 }
 
-export function createGscClient(opts: { account: ServiceAccount; tokens: GoogleTokenCache; fetchImpl?: FetchLike }) {
+/** Where Search Console access tokens come from: a service account, or a connected Google account (OAuth). */
+export interface GscAuth {
+  getToken(): Promise<string>;
+  invalidate(): void;
+  /** For error messages: the service account email, or `oauth:<email>`. */
+  identity: string;
+}
+
+export function serviceAccountAuth(account: ServiceAccount, tokens: GoogleTokenCache): GscAuth {
+  return { getToken: () => tokens.getAccessToken(account, GSC_SCOPE), invalidate: () => tokens.invalidate(account, GSC_SCOPE), identity: account.clientEmail };
+}
+
+export function createGscClient(opts: ({ account: ServiceAccount; tokens: GoogleTokenCache } | { auth: GscAuth }) & { fetchImpl?: FetchLike }) {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const auth = "auth" in opts ? opts.auth : serviceAccountAuth(opts.account, opts.tokens);
   return {
     async query(property: string, request: SearchAnalyticsRequest): Promise<GscRow[]> {
       for (let attempt = 0; ; attempt++) {
-        const token = await opts.tokens.getAccessToken(opts.account, GSC_SCOPE);
+        const token = await auth.getToken();
         const r = await send(fetchImpl, searchAnalyticsUrl(property), { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(request) }, "Search Console");
         // A token revoked early: sign in again once.
         if (r.status === 401 && attempt === 0) {
-          opts.tokens.invalidate(opts.account, GSC_SCOPE);
+          auth.invalidate();
           continue;
         }
-        if (r.status < 200 || r.status >= 300) throw gscApiError(r.status, r.body, opts.account.clientEmail);
+        if (r.status < 200 || r.status >= 300) throw gscApiError(r.status, r.body, auth.identity);
         return parseSearchAnalytics(json(r.body, "Search Console"));
       }
     },

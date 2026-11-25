@@ -451,6 +451,21 @@ The jobs run at low priority on the normal queue (Vercel ticks or the worker; no
 4. For each dealership: in [Search Console](https://search.google.com/search-console) open the property → **Settings → Users and permissions → Add user** → the service account email, permission **Restricted**. (A property owner must do this.)
 5. In the app: **Edit dealership → Google data → Search Console property**, exactly as the property picker shows it: `sc-domain:example.com` for a domain property, or `https://www.example.com/` for a URL-prefix property. The first sync runs within one cron tick (about 10 minutes). A 403 error on the tab means step 4 is missing; 404 means the property name does not match.
 
+### Google Search Console without a key file ("Connect with Google")
+
+Organisations under Google's "Secure by Default" policy cannot create service account keys
+(`iam.disableServiceAccountKeyCreation`). Instead, an administrator who already has access to the
+dealerships' Search Console properties connects their Google account once (read-only):
+
+1. In Google Cloud (any project of the organisation): **APIs & Services → Library** → enable **Google Search Console API**.
+2. **APIs & Services → OAuth consent screen** → User type **Internal** (only accounts of your Google Workspace can connect; no Google review needed) → app name "A3 SEO Monitor", support email → save. Scopes need not be added here.
+3. **Credentials → Create credentials → OAuth client ID** → type **Web application** → Authorized redirect URI: `https://<your app>/api/integrations/google/callback` (exactly `APP_URL` + that path) → create.
+4. Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in the Vercel environment (Production, Sensitive) and redeploy.
+5. **Admin → System → Connect with Google**, sign in, allow "View Search Console data". The refresh token is stored encrypted (AUTH_SECRET); **Disconnect** removes it and revokes it at Google.
+6. Set each dealership's property under **Edit dealership → Google data** as above. The connected account must have access to each property.
+
+A service account, when configured, takes precedence.
+
 ### Google listing (Places API (New))
 
 The Business Profile API needs special approval from Google, so listing data comes from the public Places API instead.

@@ -134,7 +134,8 @@ export function parseSearchAnalytics(json: unknown): GscRow[] {
 }
 
 /** Readable, actionable error for a Search Console API failure. Permanent errors are not retried. */
-export function gscApiError(status: number, body: string, serviceAccountEmail: string): GoogleApiError {
+/** `who`: the service account email, or (OAuth) the connected Google account as `oauth:<email>`. */
+export function gscApiError(status: number, body: string, who: string): GoogleApiError {
   let message = "";
   try {
     message = (JSON.parse(body) as { error?: { message?: string } }).error?.message ?? "";
@@ -142,7 +143,16 @@ export function gscApiError(status: number, body: string, serviceAccountEmail: s
     /* not JSON */
   }
   const detail = message ? ` Google said: "${message.slice(0, 200)}"` : "";
+  if (status === 403 && who.startsWith("oauth:")) {
+    const email = who.slice("oauth:".length) || "The connected Google account";
+    return new GoogleApiError(
+      `${email} has no access to this Search Console property. Add that account as a user of the property in Search Console → Settings → Users and permissions, or reconnect with an account that has access (Admin → System).${detail}`,
+      true,
+      status,
+    );
+  }
   if (status === 403) {
+    const serviceAccountEmail = who;
     return new GoogleApiError(
       `The service account has no access to this Search Console property. In Search Console → Settings → Users and permissions, add ${serviceAccountEmail} as a user (Restricted is enough), and make sure the Search Console API is enabled in the Google Cloud project.${detail}`,
       true,

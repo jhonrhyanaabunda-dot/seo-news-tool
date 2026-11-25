@@ -82,3 +82,13 @@ export async function syncIntegrationsNowAction(formData: FormData) {
   if (queued) kickProcessing();
   redirect(`/dealerships/${id}?tab=search&sync=${queued ? "queued" : "nothing"}`);
 }
+
+/** Admin → System: forget the "Connect with Google" Search Console connection and revoke it at Google. */
+export async function disconnectGoogleAction() {
+  const user = await assertAdmin();
+  const { deleteOAuthConnection, getOAuthConnection } = await import("@/lib/integrations/google-oauth");
+  const c = await getOAuthConnection();
+  await deleteOAuthConnection();
+  if (c) await recordAudit({ actor: user, action: "integrations.google_disconnected", target: { type: "integration", id: "search_console" }, summary: `Disconnected Search Console (Google account ${c.email ?? "unknown"})`, details: { email: c.email } });
+  redirect("/admin/system?google=disconnected");
+}

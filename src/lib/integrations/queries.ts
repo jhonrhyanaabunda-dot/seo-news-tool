@@ -17,7 +17,7 @@ import {
 } from "@/lib/db/schema";
 import { requireDealershipAccess } from "@/lib/auth/tenant";
 import { presentedScanOrder } from "@/lib/seo/presented-scan";
-import { gscConfig, gscConfigured, placesConfigured } from "./config";
+import { gscAvailable, gscStatus, placesConfigured } from "./config";
 import { integrationRows, loadSearchPerformance, type SearchPerformance } from "./data";
 import { listingFlags, reviewChange, type ListingFlag } from "./places";
 import { metricsFromScanPage } from "./competitor-metrics";
@@ -149,7 +149,7 @@ export async function loadSearchTab(dealer: Dealership): Promise<SearchTabData> 
   const status = await integrationRows(dealer.id);
   const [search, listing] = await Promise.all([loadSearchPerformance(dealer, status.gsc ?? null), loadGoogleListing(dealer, status.places ?? null)]);
   return {
-    gsc: gscConfig(),
+    gsc: await gscStatus(),
     placesConfigured: placesConfigured(),
     search,
     listing,
@@ -159,7 +159,7 @@ export async function loadSearchTab(dealer: Dealership): Promise<SearchTabData> 
 
 /** Whether a dealership login gets the tab: only when something is connected for its dealership. */
 export async function searchTabAvailable(dealer: Dealership): Promise<boolean> {
-  if ((dealer.gscProperty && gscConfigured()) || (dealer.googlePlaceId && placesConfigured())) return true;
+  if ((dealer.gscProperty && (await gscAvailable())) || (dealer.googlePlaceId && placesConfigured())) return true;
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(competitors).where(eq(competitors.dealershipId, dealer.id));
   return n > 0;
 }

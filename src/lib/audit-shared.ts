@@ -51,6 +51,8 @@ export const AUDIT_ACTIONS = {
   "competitor.add": "Added competitor",
   "competitor.remove": "Removed competitor",
   "integrations.sync_now": "Synced Search Console / Google listing now",
+  "integrations.google_connected": "Connected Search Console (Google account)",
+  "integrations.google_disconnected": "Disconnected Search Console (Google account)",
   "issue.status": "Changed issue status",
 } as const;
 

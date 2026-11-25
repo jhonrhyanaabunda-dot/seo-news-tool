@@ -64,9 +64,14 @@ export function IntegrationFields({
           </p>
         ) : (
           <p id="gscProperty-hint" className="field-hint">
-            Copy it exactly from the Search Console property picker. Then, in Search Console → Settings → Users and permissions, add{" "}
-            {config.serviceAccountEmail ? <strong className="break-all">{config.serviceAccountEmail}</strong> : "the service account email"} as a user (Restricted is enough).
-            {!config.serviceAccountEmail && " Search Console is not connected yet: set the Google service account variables (see README)."}
+            Copy it exactly from the Search Console property picker.{" "}
+            {config.serviceAccountEmail ? (
+              <>
+                Then, in Search Console → Settings → Users and permissions, add <strong className="break-all">{config.serviceAccountEmail}</strong> as a user (Restricted is enough).
+              </>
+            ) : (
+              "The Google account connected in Admin → System (Connect with Google) must have access to this property."
+            )}
           </p>
         )}
       </div>

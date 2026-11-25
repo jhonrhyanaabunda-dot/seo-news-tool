@@ -93,7 +93,14 @@ function SearchConsoleSection({ data, isAdmin, isClient, tz }: { data: SearchTab
           description={
             isAdmin ? (
               <>
-                Add the property (e.g. <code>sc-domain:example.com</code>) under Edit → Google data, then add <strong>{data.gsc.serviceAccountEmail}</strong> as a user on that property in Search Console.
+                Add the property (e.g. <code>sc-domain:example.com</code>) under Edit → Google data
+                {data.gsc.serviceAccountEmail ? (
+                  <>
+                    , then add <strong>{data.gsc.serviceAccountEmail}</strong> as a user on that property in Search Console.
+                  </>
+                ) : (
+                  ". The Google account connected in Admin → System needs access to that property."
+                )}
               </>
             ) : (
               "An administrator can add this dealership's Search Console property."
@@ -403,7 +410,7 @@ function SetupHint({ kind, problem }: { kind: "gsc" | "places"; problem: string 
       {problem && <span className="mb-2 block font-medium text-amber-800">Configuration problem: {problem}</span>}
       {kind === "gsc" ? (
         <>
-          In Google Cloud, enable the <strong>Google Search Console API</strong>, create a service account with a JSON key, and set <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> (or <code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code> + <code>GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY</code>) in the environment, then redeploy. Add the service account&apos;s email as a user on each Search Console property. See the README section
+          In Admin → System, press <strong>Connect with Google</strong> and sign in with an account that has access to the dealerships&apos; Search Console (needs a Google OAuth client, see the README). Or, in Google Cloud, enable the <strong>Google Search Console API</strong>, create a service account with a JSON key, and set <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> (or <code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code> + <code>GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY</code>) in the environment, then redeploy. Add the service account&apos;s email as a user on each Search Console property. See the README section
           “Search Console, Google listing and competitors”.
         </>
       ) : (

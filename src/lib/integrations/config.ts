@@ -47,3 +47,27 @@ export function placesConfigured(): boolean {
 export function integrationFieldsConfig(): { serviceAccountEmail: string | null; placesEnabled: boolean } {
   return { serviceAccountEmail: gscConfig().serviceAccountEmail, placesEnabled: placesConfigured() };
 }
+
+export interface GscStatus extends GscConfig {
+  /** How Search Console is reached; a service account wins when both are set. */
+  method: "service_account" | "oauth" | null;
+  /** OAuth: the app has a client ID/secret, so an administrator can connect. */
+  oauthAvailable: boolean;
+  /** OAuth: the Google account that was connected. */
+  connectedEmail: string | null;
+  connectedAt: string | null;
+}
+
+/** Search Console availability including a "Connect with Google" connection (a database read). */
+export async function gscStatus(): Promise<GscStatus> {
+  const base = gscConfig();
+  const { oauthClientConfigured, getOAuthConnection } = await import("./google-oauth");
+  const oauthAvailable = oauthClientConfigured();
+  if (base.configured) return { ...base, method: "service_account", oauthAvailable, connectedEmail: null, connectedAt: null };
+  const c = oauthAvailable ? await getOAuthConnection() : null;
+  return { ...base, configured: Boolean(c), method: c ? "oauth" : null, oauthAvailable, connectedEmail: c?.email ?? null, connectedAt: c?.connectedAt ?? null };
+}
+
+export async function gscAvailable(): Promise<boolean> {
+  return (await gscStatus()).configured;
+}

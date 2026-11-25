@@ -13,7 +13,8 @@ import { friendlyFetchError } from "@/lib/seo/messages";
 import { pageSpeedEnabled, runPageSpeed } from "@/lib/seo/pagespeed";
 import { GoogleApiError, GoogleTokenCache } from "./google-auth";
 import { createGscClient, createPlacesClient } from "./clients";
-import { gscConfigured, placesConfigured, serviceAccount } from "./config";
+import { gscAvailable, placesConfigured, serviceAccount } from "./config";
+import { oauthTokens, getOAuthConnection, oauthClientConfigured } from "./google-oauth";
 import { GSC_PERIOD_DAYS, GSC_TOP_ROWS, addDays, pacificDate, searchAnalyticsRequest, syncWindow } from "./gsc";
 import { matchCandidateByHost, placeSearchQuery } from "./places";
 import { emptyMetrics, metricsFromPage } from "./competitor-metrics";
@@ -39,9 +40,14 @@ const COMPETITOR_SNAPSHOT_RETENTION_DAYS = 400;
  */
 const COMPETITOR_MIN_BUDGET_MS = 100_000;
 
-export function gscClient() {
+/** A service account when configured, otherwise the "Connect with Google" connection, otherwise null. */
+export async function gscClient() {
   const account = serviceAccount();
-  return account ? createGscClient({ account, tokens }) : null;
+  if (account) return createGscClient({ account, tokens });
+  if (!oauthClientConfigured()) return null;
+  const c = await getOAuthConnection();
+  if (!c) return null;
+  return createGscClient({ auth: { getToken: () => oauthTokens.getToken(), invalidate: () => oauthTokens.invalidate(), identity: `oauth:${c.email ?? ""}` } });
 }
 
 export function placesClient() {
@@ -62,7 +68,7 @@ async function recordStatus(dealershipId: number, kind: IntegrationKind, patch: 
 export async function runGscSync(dealershipId: number, now = new Date()): Promise<Record<string, unknown>> {
   const [d] = await db.select({ id: dealerships.id, property: dealerships.gscProperty }).from(dealerships).where(eq(dealerships.id, dealershipId)).limit(1);
   if (!d?.property) return { skipped: "no Search Console property" };
-  const client = gscClient();
+  const client = await gscClient();
   if (!client) return { skipped: "Search Console is not configured" };
   const property = d.property;
 
@@ -269,7 +275,7 @@ export async function scheduleIntegrationWork(now = new Date()): Promise<{ gsc: 
       .values({ dealershipId, kind, status: "pending", lastScheduledAt: now })
       .onConflictDoUpdate({ target: [dealershipIntegrations.dealershipId, dealershipIntegrations.kind], set: { lastScheduledAt: now } });
 
-  if (gscConfigured()) {
+  if (await gscAvailable()) {
     for (const row of await due("gsc", "gsc_property", GSC_INTERVAL_HOURS)) {
       const id = Number(row.id);
       if (await enqueue("gsc_sync", id, {}, `gsc:${id}`, INTEGRATION_PRIORITY.gsc_sync)) out.gsc++;
@@ -305,7 +311,7 @@ export async function requestIntegrationSync(dealershipId: number): Promise<numb
   if (!d) return 0;
   let n = 0;
   const now = new Date();
-  if (d.gsc && gscConfigured() && (await enqueue("gsc_sync", dealershipId, {}, `gsc:${dealershipId}`, 40))) n++;
+  if (d.gsc && (await gscAvailable()) && (await enqueue("gsc_sync", dealershipId, {}, `gsc:${dealershipId}`, 40))) n++;
   if (d.place && placesConfigured() && (await enqueue("places_sync", dealershipId, {}, `places:${dealershipId}`, 40))) n++;
   const comps = await db.select({ id: competitors.id }).from(competitors).where(eq(competitors.dealershipId, dealershipId));
   for (const c of comps) {
